@@ -13,19 +13,20 @@
 #include <ztest.h>
 
 #include "settings/settings.h"
-#include "flash_map.h"
+#include <storage/flash_map.h>
 
 #ifdef __cplusplus
-#extern "C" {
+extern "C" {
 #endif
 
 #define SETTINGS_TEST_FCB_VAL_STR_CNT   64
 #define SETTINGS_TEST_FCB_FLASH_CNT   4
 
-extern u8_t val8;
-extern u8_t val8_un;
-extern u32_t val32;
-extern u64_t val64;
+
+extern uint8_t val8;
+extern uint8_t val8_un;
+extern uint32_t val32;
+extern uint64_t val64;
 
 extern int test_get_called;
 extern int test_set_called;

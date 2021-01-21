@@ -4,9 +4,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# This converts a file to a list of hex characters which can then
-# be included to a source file.
-# Optionally, the output can be compressed if needed.
+
+"""Convert a file to a list of hex characters
+
+The list of hex characters can then be included to a source file. Optionally,
+the output can be compressed.
+
+"""
 
 import argparse
 import codecs
@@ -24,6 +28,12 @@ def parse_args():
     parser.add_argument("-f", "--file", required=True, help="Input file")
     parser.add_argument("-g", "--gzip", action="store_true",
                         help="Compress the file using gzip before output")
+    parser.add_argument("-t", "--gzip-mtime", type=int, default=0,
+                        nargs='?', const=None,
+                        help="""mtime seconds in the gzip header.
+                        Defaults to zero to keep builds deterministic. For
+                        current date and time (= "now") use this option
+                        without any value.""")
     args = parser.parse_args()
 
 
@@ -41,8 +51,14 @@ def main():
     parse_args()
 
     if args.gzip:
-        with open(args.file, 'rb') as fg:
-            content = io.BytesIO(gzip.compress(fg.read(), compresslevel=9))
+        with io.BytesIO() as content:
+            with open(args.file, 'rb') as fg:
+                with gzip.GzipFile(fileobj=content, mode='w',
+                                   mtime=args.gzip_mtime,
+                                   compresslevel=9) as gz_obj:
+                    gz_obj.write(fg.read())
+
+            content.seek(0)
             for chunk in iter(lambda: content.read(8), b''):
                 make_hex(chunk)
     else:

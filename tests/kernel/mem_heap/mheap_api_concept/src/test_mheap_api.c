@@ -24,23 +24,25 @@
  */
 void test_mheap_malloc_free(void)
 {
-	void *block[BLK_NUM_MAX], *block_fail;
+	void *block[2 * BLK_NUM_MAX], *block_fail;
+	int nb;
 
-	for (int i = 0; i < BLK_NUM_MAX; i++) {
+	for (nb = 0; nb < ARRAY_SIZE(block); nb++) {
 		/**
 		 * TESTPOINT: This routine provides traditional malloc()
 		 * semantics. Memory is allocated from the heap memory pool.
 		 */
-		block[i] = k_malloc(i);
-		/** TESTPOINT: Address of the allocated memory if successful;*/
-		zassert_not_null(block[i], NULL);
+		block[nb] = k_malloc(BLK_SIZE_MIN);
+		if (block[nb] == NULL) {
+			break;
+		}
 	}
 
 	block_fail = k_malloc(BLK_SIZE_MIN);
 	/** TESTPOINT: Return NULL if fail.*/
 	zassert_is_null(block_fail, NULL);
 
-	for (int i = 0; i < BLK_NUM_MAX; i++) {
+	for (int i = 0; i < nb; i++) {
 		/**
 		 * TESTPOINT: This routine provides traditional free()
 		 * semantics. The memory being returned must have been allocated
@@ -84,4 +86,35 @@ void test_mheap_calloc(void)
 	}
 
 	k_free(mem);
+}
+
+void test_k_aligned_alloc(void)
+{
+	void *r;
+
+	/*
+	 * Allow sizes that are not necessarily a multiple of the
+	 * alignment. The backing allocator would naturally round up to
+	 * some minimal block size. This would make k_aligned_alloc()
+	 * more like posix_memalign() instead of aligned_alloc(), but
+	 * the benefit is that k_malloc() can then just be a wrapper
+	 * around k_aligned_alloc().
+	 */
+	r = k_aligned_alloc(sizeof(void *), 1);
+	/* allocation succeeds */
+	zassert_not_equal(NULL, r, "aligned alloc of 1 byte failed");
+	/* r is suitably aligned */
+	zassert_equal(0, (uintptr_t)r % sizeof(void *),
+		"%p not %u-byte-aligned",
+		r, sizeof(void *));
+	k_free(r);
+
+	/* allocate with > 8 byte alignment */
+	r = k_aligned_alloc(16, 1);
+	/* allocation succeeds */
+	zassert_not_equal(NULL, r, "16-byte-aligned alloc failed");
+	/* r is suitably aligned */
+	zassert_equal(0, (uintptr_t)r % 16,
+		"%p not 16-byte-aligned", r);
+	k_free(r);
 }

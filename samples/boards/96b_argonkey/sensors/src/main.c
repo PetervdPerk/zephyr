@@ -5,13 +5,13 @@
  */
 
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
-#include <gpio.h>
-#include <led.h>
-#include <i2c.h>
-#include <spi.h>
-#include <sensor.h>
+#include <drivers/gpio.h>
+#include <drivers/led.h>
+#include <drivers/i2c.h>
+#include <drivers/spi.h>
+#include <drivers/sensor.h>
 
 #include <stdio.h>
 
@@ -27,7 +27,7 @@ static inline float out_ev(struct sensor_value *val)
 
 static int lsm6dsl_trig_cnt;
 #ifdef CONFIG_LSM6DSL_TRIGGER
-static void lsm6dsl_trigger_handler(struct device *dev,
+static void lsm6dsl_trigger_handler(const struct device *dev,
 				    struct sensor_trigger *trig)
 {
 #ifdef ARGONKEY_TEST_LOG
@@ -107,16 +107,16 @@ void main(void)
 {
 	int cnt = 0;
 	char out_str[64];
-	static struct device *led0, *led1;
+	static const struct device *led0, *led1;
 	int i, on = 1;
 
 #ifdef CONFIG_LP3943
-	static struct device *ledc;
+	static const struct device *ledc;
 
-	ledc = device_get_binding(DT_TI_LP3943_0_LABEL);
+	ledc = device_get_binding(DT_LABEL(DT_INST(0, ti_lp3943)));
 	if (!ledc) {
 		printk("Could not get pointer to %s sensor\n",
-			DT_TI_LP3943_0_LABEL);
+			DT_LABEL(DT_INST(0, ti_lp3943)));
 		return;
 	}
 
@@ -133,48 +133,51 @@ void main(void)
 	}
 #endif
 
-	led0 = device_get_binding(LED0_GPIO_CONTROLLER);
-	gpio_pin_configure(led0, LED0_GPIO_PIN, GPIO_DIR_OUT);
-	gpio_pin_write(led0, LED0_GPIO_PIN, 1);
+	led0 = device_get_binding(DT_GPIO_LABEL(DT_ALIAS(led0), gpios));
+	gpio_pin_configure(led0, DT_GPIO_PIN(DT_ALIAS(led0), gpios),
+			   GPIO_OUTPUT_ACTIVE |
+			   DT_GPIO_FLAGS(DT_ALIAS(led0), gpios));
 
-	led1 = device_get_binding(LED1_GPIO_CONTROLLER);
-	gpio_pin_configure(led1, LED1_GPIO_PIN, GPIO_DIR_OUT);
+	led1 = device_get_binding(DT_GPIO_LABEL(DT_ALIAS(led1), gpios));
+	gpio_pin_configure(led1, DT_GPIO_PIN(DT_ALIAS(led1), gpios),
+			   GPIO_OUTPUT_INACTIVE |
+			   DT_GPIO_FLAGS(DT_ALIAS(led1), gpios));
 
 	for (i = 0; i < 5; i++) {
-		gpio_pin_write(led1, LED1_GPIO_PIN, on);
-		k_sleep(200);
+		gpio_pin_set(led1, DT_GPIO_PIN(DT_ALIAS(led1), gpios), on);
+		k_sleep(K_MSEC(200));
 		on = (on == 1) ? 0 : 1;
 	}
 
 	printk("ArgonKey test!!\n");
 
 #ifdef CONFIG_LPS22HB
-	struct device *baro_dev =
-			device_get_binding(DT_ST_LPS22HB_PRESS_0_LABEL);
+	const struct device *baro_dev =
+			device_get_binding(DT_LABEL(DT_INST(0, st_lps22hb_press)));
 
 	if (!baro_dev) {
 		printk("Could not get pointer to %s sensor\n",
-			DT_ST_LPS22HB_PRESS_0_LABEL);
+			DT_LABEL(DT_INST(0, st_lps22hb_press)));
 		return;
 	}
 #endif
 
 #ifdef CONFIG_HTS221
-	struct device *hum_dev = device_get_binding(DT_ST_HTS221_0_LABEL);
+	const struct device *hum_dev = device_get_binding(DT_LABEL(DT_INST(0, st_hts221)));
 
 	if (!hum_dev) {
 		printk("Could not get pointer to %s sensor\n",
-			DT_ST_HTS221_0_LABEL);
+			DT_LABEL(DT_INST(0, st_hts221)));
 		return;
 	}
 #endif
 
 #ifdef CONFIG_LSM6DSL
-	struct device *accel_dev = device_get_binding(DT_ST_LSM6DSL_0_LABEL);
+	const struct device *accel_dev = device_get_binding(DT_LABEL(DT_INST(0, st_lsm6dsl)));
 
 	if (!accel_dev) {
 		printk("Could not get pointer to %s sensor\n",
-			DT_ST_LSM6DSL_0_LABEL);
+			DT_LABEL(DT_INST(0, st_lsm6dsl)));
 		return;
 	}
 
@@ -235,11 +238,11 @@ void main(void)
 #endif
 
 #ifdef CONFIG_VL53L0X
-	struct device *tof_dev = device_get_binding(DT_ST_VL53L0X_0_LABEL);
+	const struct device *tof_dev = device_get_binding(DT_LABEL(DT_INST(0, st_vl53l0x)));
 
 	if (!tof_dev) {
 		printk("Could not get pointer to %s sensor\n",
-			DT_ST_VL53L0X_0_LABEL);
+			DT_LABEL(DT_INST(0, st_vl53l0x)));
 		return;
 	}
 #endif
@@ -249,7 +252,11 @@ void main(void)
 
 	trig.type = SENSOR_TRIG_DATA_READY;
 	trig.chan = SENSOR_CHAN_ACCEL_XYZ;
-	sensor_trigger_set(accel_dev, &trig, lsm6dsl_trigger_handler);
+	if (sensor_trigger_set(accel_dev, &trig,
+			       lsm6dsl_trigger_handler) != 0) {
+		printk("Could not set sensor type and channel\n");
+		return;
+	}
 #endif
 
 	while (1) {
@@ -346,8 +353,6 @@ void main(void)
 #endif /* CONFIG_LSM6DSL */
 
 		printk("- (%d) (trig_cnt: %d)\n\n", ++cnt, lsm6dsl_trig_cnt);
-		k_sleep(2000);
+		k_sleep(K_MSEC(2000));
 	}
 }
-
-

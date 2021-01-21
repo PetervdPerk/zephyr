@@ -1,7 +1,0 @@
-sample:
-  name: Bluetooth Mesh
-tests:
-  bluetooth.mesh:
-    platform_whitelist: nrf52840_pca10056
-    tags: bluetooth
-    harness: bluetooth

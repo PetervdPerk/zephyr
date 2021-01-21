@@ -1,37 +1,28 @@
-#
 # Copyright (c) 2018, I-SENSE group of ICCS
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: STM32 SPI
-version: 0.1
 
-description: >
-    This binding gives a base representation of the STM32 SPI controller
+description: STM32 SPI controller
 
-inherits:
-    !include spi.yaml
+compatible: "st,stm32-spi"
+
+include: spi-controller.yaml
 
 properties:
-    compatible:
-      constraint: "st,stm32-spi"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
-    interrupt-names:
-      type: stringlist
-      category: optional
-      description: readable string describing the interrupts
+    pinctrl-0:
+      type: phandles
+      required: false
+      description: |
+        Pin configuration for SPI signals (MISO, MOSI, SCK and optional NSS).
+        We expect that the phandles will reference pinctrl nodes.
 
-...
+        For example the SPI3 would be
+           <&spi3_sck_pc10 &spi3_miso_pc11 &spi3_mosi_pc12>;
+
+        Example with NSS Pin
+           <&spi3_sck_pc10 &spi3_miso_pc11 &spi3_mosi_pc12 &spi3_nss_pa15>;

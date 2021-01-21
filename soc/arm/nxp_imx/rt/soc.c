@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017,2018, NXP
+ * Copyright (c) 2017-2020 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,10 +9,15 @@
 #include <init.h>
 #include <soc.h>
 #include <linker/sections.h>
+#include <linker/linker-defs.h>
 #include <fsl_clock.h>
 #include <arch/cpu.h>
-#include <cortex_m/exc.h>
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
 #include <fsl_flexspi_nor_boot.h>
+#if CONFIG_USB_DC_NXP_EHCI
+#include "usb_phy.h"
+#include "usb_dc_mcux.h"
+#endif
 
 #ifdef CONFIG_INIT_ARM_PLL
 /* ARM PLL configuration for RUN mode */
@@ -35,10 +40,20 @@ const clock_usb_pll_config_t usb1PllConfig = {
 };
 #endif
 
+#if CONFIG_USB_DC_NXP_EHCI
+/* USB PHY condfiguration */
+#define BOARD_USB_PHY_D_CAL (0x0CU)
+#define BOARD_USB_PHY_TXCAL45DP (0x06U)
+#define BOARD_USB_PHY_TXCAL45DM (0x06U)
+#endif
+
 #ifdef CONFIG_INIT_ENET_PLL
 /* ENET PLL configuration for RUN mode */
 const clock_enet_pll_config_t ethPllConfig = {
-#ifdef CONFIG_SOC_MIMXRT1021
+#if defined(CONFIG_SOC_MIMXRT1011) || \
+	defined(CONFIG_SOC_MIMXRT1015) || \
+	defined(CONFIG_SOC_MIMXRT1021) || \
+	defined(CONFIG_SOC_MIMXRT1024)
 	.enableClkOutput500M = true,
 #endif
 #ifdef CONFIG_ETH_MCUX
@@ -47,6 +62,12 @@ const clock_enet_pll_config_t ethPllConfig = {
 	.enableClkOutput25M = false,
 	.loopDivider = 1,
 };
+#endif
+
+#if CONFIG_USB_DC_NXP_EHCI
+	usb_phy_config_struct_t usbPhyConfig = {
+		BOARD_USB_PHY_D_CAL, BOARD_USB_PHY_TXCAL45DP, BOARD_USB_PHY_TXCAL45DM,
+	};
 #endif
 
 #ifdef CONFIG_INIT_VIDEO_PLL
@@ -61,14 +82,14 @@ const clock_video_pll_config_t videoPllConfig = {
 #ifdef CONFIG_NXP_IMX_RT_BOOT_HEADER
 const __imx_boot_data_section BOOT_DATA_T boot_data = {
 	.start = CONFIG_FLASH_BASE_ADDRESS,
-	.size = CONFIG_FLASH_SIZE,
+	.size = KB(CONFIG_FLASH_SIZE),
 	.plugin = PLUGIN_FLAG,
 	.placeholder = 0xFFFFFFFF,
 };
 
 const __imx_boot_ivt_section ivt image_vector_table = {
 	.hdr = IVT_HEADER,
-	.entry = CONFIG_FLASH_BASE_ADDRESS + CONFIG_TEXT_SECTION_OFFSET,
+	.entry = (uint32_t) _vector_start,
 	.reserved1 = IVT_RSVD,
 #ifdef CONFIG_DEVICE_CONFIGURATION_DATA
 	.dcd = (uint32_t) dcd_data,
@@ -89,7 +110,7 @@ const __imx_boot_ivt_section ivt image_vector_table = {
  * @return N/A
  *
  */
-static ALWAYS_INLINE void clkInit(void)
+static ALWAYS_INLINE void clock_init(void)
 {
 	/* Boot ROM did initialize the XTAL, here we only sets external XTAL
 	 * OSC freq
@@ -128,7 +149,9 @@ static ALWAYS_INLINE void clkInit(void)
 	CLOCK_InitVideoPll(&videoPllConfig);
 #endif
 
+#ifdef CONFIG_HAS_ARM_DIV
 	CLOCK_SetDiv(kCLOCK_ArmDiv, CONFIG_ARM_DIV); /* Set ARM PODF */
+#endif
 	CLOCK_SetDiv(kCLOCK_AhbDiv, CONFIG_AHB_DIV); /* Set AHB PODF */
 	CLOCK_SetDiv(kCLOCK_IpgDiv, CONFIG_IPG_DIV); /* Set IPG PODF */
 
@@ -160,12 +183,73 @@ static ALWAYS_INLINE void clkInit(void)
 	CLOCK_SetDiv(kCLOCK_LcdifDiv, 1);
 #endif
 
+#if CONFIG_USB_DC_NXP_EHCI
+	CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usb480M,
+				DT_PROP_BY_PHANDLE(DT_INST(0, nxp_kinetis_usbd), clocks, clock_frequency));
+	CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M,
+				DT_PROP_BY_PHANDLE(DT_INST(0, nxp_kinetis_usbd), clocks, clock_frequency));
+	USB_EhciPhyInit(kUSB_ControllerEhci0, CPU_XTAL_CLK_HZ, &usbPhyConfig);
+#endif
+
+#if defined(CONFIG_DISK_ACCESS_USDHC1) ||       \
+	defined(CONFIG_DISK_ACCESS_USDHC2)
+	CLOCK_InitSysPfd(kCLOCK_Pfd0, 0x12U);
+	/* Configure USDHC clock source and divider */
+#ifdef CONFIG_DISK_ACCESS_USDHC1
+	CLOCK_SetDiv(kCLOCK_Usdhc1Div, 0U);
+	CLOCK_SetMux(kCLOCK_Usdhc1Mux, 1U);
+	CLOCK_EnableClock(kCLOCK_Usdhc1);
+#endif
+#ifdef CONFIG_DISK_ACCESS_USDHC2
+	CLOCK_SetDiv(kCLOCK_Usdhc2Div, 0U);
+	CLOCK_SetMux(kCLOCK_Usdhc2Mux, 1U);
+	CLOCK_EnableClock(kCLOCK_Usdhc2);
+#endif
+#endif
+#ifdef CONFIG_VIDEO_MCUX_CSI
+	CLOCK_EnableClock(kCLOCK_Csi); /* Disable CSI clock gate */
+	CLOCK_SetDiv(kCLOCK_CsiDiv, 0); /* Set CSI divider to 1 */
+	CLOCK_SetMux(kCLOCK_CsiMux, 0); /* Set CSI source to OSC 24M */
+#endif
+#ifdef CONFIG_CAN_MCUX_FLEXCAN
+	CLOCK_SetDiv(kCLOCK_CanDiv, 1); /* Set CAN_CLK_PODF. */
+	CLOCK_SetMux(kCLOCK_CanMux, 2); /* Set Can clock source. */
+#endif
+
 	/* Keep the system clock running so SYSTICK can wake up the system from
 	 * wfi.
 	 */
 	CLOCK_SetMode(kCLOCK_ModeRun);
 
 }
+
+#if defined(CONFIG_DISK_ACCESS_USDHC1) ||	\
+	defined(CONFIG_DISK_ACCESS_USDHC2)
+
+/* Usdhc driver needs to re-configure pinmux
+ * Pinmux depends on board design.
+ * From the perspective of Usdhc driver,
+ * it can't access board specific function.
+ * So SoC provides this for board to register
+ * its usdhc pinmux and for usdhc to access
+ * pinmux.
+ */
+
+static usdhc_pin_cfg_cb g_usdhc_pin_cfg_cb;
+
+void imxrt_usdhc_pinmux_cb_register(usdhc_pin_cfg_cb cb)
+{
+	g_usdhc_pin_cfg_cb = cb;
+}
+
+void imxrt_usdhc_pinmux(uint16_t nusdhc, bool init,
+	uint32_t speed, uint32_t strength)
+{
+	if (g_usdhc_pin_cfg_cb)
+		g_usdhc_pin_cfg_cb(nusdhc, init,
+			speed, strength);
+}
+#endif
 
 /**
  *
@@ -177,7 +261,7 @@ static ALWAYS_INLINE void clkInit(void)
  * @return 0
  */
 
-static int imxrt_init(struct device *arg)
+static int imxrt_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -210,10 +294,8 @@ static int imxrt_init(struct device *arg)
 		SCB_EnableDCache();
 	}
 
-	_ClearFaults();
-
 	/* Initialize system clock */
-	clkInit();
+	clock_init();
 
 	/*
 	 * install default handler that simply resets the CPU

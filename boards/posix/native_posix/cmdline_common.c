@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include "posix_trace.h"
+#include <arch/posix/posix_trace.h>
 #include "posix_board_if.h"
 #include "zephyr/types.h"
 #include "cmdline_common.h"
@@ -121,7 +121,7 @@ void cmd_read_option_value(const char *str, void *dest, const char type,
 			   const char *option)
 {
 	int error = 0;
-	char *endptr;
+	char *endptr = NULL;
 
 	switch (type) {
 	case 'b':
@@ -146,26 +146,27 @@ void cmd_read_option_value(const char *str, void *dest, const char type,
 		endptr = (char *)str + strlen(str);
 		break;
 	case 'u':
-		*(u32_t *)dest = strtoul(str, &endptr, 0);
+		*(uint32_t *)dest = strtoul(str, &endptr, 0);
 		break;
 	case 'U':
-		*(u64_t *)dest = strtoull(str, &endptr, 0);
+		*(uint64_t *)dest = strtoull(str, &endptr, 0);
 		break;
 	case 'i':
-		*(s32_t *)dest = strtol(str, &endptr, 0);
+		*(int32_t *)dest = strtol(str, &endptr, 0);
 		break;
 	case 'I':
-		*(s64_t *)dest = strtoll(str, &endptr, 0);
+		*(int64_t *)dest = strtoll(str, &endptr, 0);
 		break;
 	case 'd':
 		*(double *)dest = strtod(str, &endptr);
 		break;
 	default:
 		posix_print_error_and_exit(CMD_TYPE_ERROR, type);
+		/* Unreachable */
 		break;
 	}
 
-	if (!error && *endptr != 0) {
+	if (!error && endptr && *endptr != 0) {
 		error = 1;
 	}
 
@@ -200,16 +201,16 @@ void cmd_args_set_defaults(struct args_struct_t args_struct[])
 			*(char **)args_struct[count].dest = NULL;
 			break;
 		case 'u':
-			*(u32_t *)args_struct[count].dest = UINT32_MAX;
+			*(uint32_t *)args_struct[count].dest = UINT32_MAX;
 			break;
 		case 'U':
-			*(u64_t *)args_struct[count].dest = UINT64_MAX;
+			*(uint64_t *)args_struct[count].dest = UINT64_MAX;
 			break;
 		case 'i':
-			*(s32_t *)args_struct[count].dest = INT32_MAX;
+			*(int32_t *)args_struct[count].dest = INT32_MAX;
 			break;
 		case 'I':
-			*(s64_t *)args_struct[count].dest = INT64_MAX;
+			*(int64_t *)args_struct[count].dest = INT64_MAX;
 			break;
 		case 'd':
 			*(double *)args_struct[count].dest = NAN;
@@ -350,6 +351,8 @@ void cmd_print_long_help(struct args_struct_t args_struct[])
 		count++;
 	}
 	fprintf(stdout, "\n");
+	fprintf(stdout, "Note that which options are available depends on the "
+		"enabled features/drivers\n\n");
 }
 
 /*

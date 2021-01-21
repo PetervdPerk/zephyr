@@ -6,22 +6,19 @@
 
 #include <ztest.h>
 #include <irq_offload.h>
-#include <misc/stack.h>
+#include <debug/stack.h>
+
+#include "tests_thread_apis.h"
 
 #define SLEEP_MS 100
 #define TEST_STRING "TEST"
 
-#define STACKSIZE (256 + CONFIG_TEST_EXTRA_STACKSIZE)
-K_THREAD_STACK_EXTERN(tstack);
-extern struct k_thread tdata;
-
 static int tcount;
 static bool thread_flag;
-static bool stack_flag;
 
 static void thread_entry(void *p1, void *p2, void *p3)
 {
-	k_sleep(SLEEP_MS);
+	k_msleep(SLEEP_MS);
 }
 
 static void thread_callback(const struct k_thread *thread, void *user_data)
@@ -34,16 +31,6 @@ static void thread_callback(const struct k_thread *thread, void *user_data)
 				str, thread, thread->base.prio);
 		thread_flag = true;
 	}
-
-	if ((char *)thread->stack_info.start ==
-			K_THREAD_STACK_BUFFER(tstack)) {
-		TC_PRINT("%s: Newly added thread stack found\n", str);
-		TC_PRINT("%s: stack:%p, size:%u\n", str,
-					(char *)thread->stack_info.start,
-					thread->stack_info.size);
-		stack_flag = true;
-	}
-
 	tcount++;
 }
 
@@ -67,16 +54,16 @@ void test_k_thread_foreach(void)
 	/* Check thread_count non-zero, thread_flag
 	 * and stack_flag are not set.
 	 */
-	zassert_true(tcount && !thread_flag && !stack_flag,
+	zassert_true(tcount && !thread_flag,
 				"thread_callback() not getting called");
 	/* Save the initial thread count */
 	count = tcount;
 
 	/* Create new thread which should add a new entry to the thread list */
 	k_tid_t tid = k_thread_create(&tdata, tstack,
-			STACKSIZE, (k_thread_entry_t)thread_entry, NULL,
-			NULL, NULL, K_PRIO_PREEMPT(0), 0, 0);
-	k_sleep(1);
+			STACK_SIZE, (k_thread_entry_t)thread_entry, NULL,
+			NULL, NULL, K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
+	k_msleep(1);
 
 	/* Call k_thread_foreach() and check
 	 * thread_callback is getting called for
@@ -86,8 +73,7 @@ void test_k_thread_foreach(void)
 	k_thread_foreach(thread_callback, TEST_STRING);
 
 	/* Check thread_count > temp, thread_flag and stack_flag are set */
-	zassert_true((tcount > count) && thread_flag && stack_flag,
+	zassert_true((tcount > count) && thread_flag,
 					"thread_callback() not getting called");
 	k_thread_abort(tid);
 }
-

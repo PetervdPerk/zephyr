@@ -36,9 +36,9 @@ extern "C" {
  * @return Received net_pkt, NULL if not received any packet.
  */
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
-struct net_pkt *net_promisc_mode_wait_data(s32_t timeout);
+struct net_pkt *net_promisc_mode_wait_data(k_timeout_t timeout);
 #else
-static inline struct net_pkt *net_promisc_mode_wait_data(s32_t timeout)
+static inline struct net_pkt *net_promisc_mode_wait_data(k_timeout_t timeout)
 {
 	ARG_UNUSED(timeout);
 
@@ -60,7 +60,7 @@ static inline int net_promisc_mode_on(struct net_if *iface)
 {
 	ARG_UNUSED(iface);
 
-	return -ENOSUP;
+	return -ENOTSUP;
 }
 #endif /* CONFIG_NET_PROMISCUOUS_MODE */
 
@@ -78,7 +78,7 @@ static inline int net_promisc_mode_off(struct net_if *iface)
 {
 	ARG_UNUSED(iface);
 
-	return -ENOSUP;
+	return -ENOTSUP;
 }
 #endif /* CONFIG_NET_PROMISCUOUS_MODE */
 

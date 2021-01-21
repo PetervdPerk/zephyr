@@ -1,5 +1,5 @@
 identifier: nucleo_l476rg
-name: NUCLEO-L476RG
+name: ST Nucleo L476RG
 type: mcu
 arch: arm
 toolchain:
@@ -7,12 +7,14 @@ toolchain:
   - gnuarmemb
   - xtools
 supported:
+  - arduino_gpio
   - arduino_i2c
   - pwm
   - gpio
+  - dma
   - spi
   - i2c
-  - rtc
   - counter
+  - adc
 ram: 96
 flash: 1024

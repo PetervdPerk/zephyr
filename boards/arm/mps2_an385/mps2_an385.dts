@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 /dts-v1/;
 
 #include <arm/armv7-m.dtsi>
@@ -8,12 +10,44 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
+	aliases {
+		led0 = &led_0;
+		led1 = &led_1;
+		sw0 = &user_button_0;
+		sw1 = &user_button_1;
+		watchdog0 = &wdog0;
+	};
+
 	chosen {
 		zephyr,console = &uart0;
 		zephyr,shell-uart = &uart0;
 		zephyr,uart-pipe = &uart1;
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led_0: led_0 {
+			gpios = <&gpio_led0 0>;
+			label = "USERLED0";
+		};
+		led_1: led_1 {
+			gpios = <&gpio_led0 1>;
+			label = "USERLED1";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		user_button_0: button_0 {
+			label = "USERPB0";
+			gpios = <&gpio_button 0>;
+		};
+		user_button_1: button_1 {
+			label = "USERPB1";
+			gpios = <&gpio_button 1>;
+		};
 	};
 
 	cpus {
@@ -34,6 +68,12 @@
 	flash0: flash@0 {
 		compatible = "soc-nv-flash";
 		reg = <0 0x400000>;
+	};
+
+	sysclk: system-clock {
+		compatible = "fixed-clock";
+		clock-frequency = <25000000>;
+		#clock-cells = <0>;
 	};
 
 	soc {
@@ -63,6 +103,7 @@
 			reg = <0x40004000 0x1000>;
 			interrupts = <1 3 0 3>;
 			interrupt-names = "tx", "rx";
+			clocks = <&sysclk>;
 			current-speed = <115200>;
 			label = "UART_0";
 		};
@@ -72,6 +113,7 @@
 			reg = <0x40005000 0x1000>;
 			interrupts = <3 3 2 3>;
 			interrupt-names = "tx", "rx";
+			clocks = <&sysclk>;
 			current-speed = <115200>;
 			label = "UART_1";
 		};
@@ -81,6 +123,7 @@
 			reg = <0x40006000 0x1000>;
 			interrupts = <5 3 4 3>;
 			interrupt-names = "tx", "rx";
+			clocks = <&sysclk>;
 			current-speed = <115200>;
 			label = "UART_2";
 		};
@@ -90,13 +133,16 @@
 			reg = <0x40007000 0x1000>;
 			interrupts = <19 3 18 3>;
 			interrupt-names = "tx", "rx";
+			clocks = <&sysclk>;
 			current-speed = <115200>;
 			label = "UART_3";
 		};
 
 		wdog0: wdog@40008000 {
 			compatible = "arm,cmsdk-watchdog";
+			clocks = <&sysclk>;
 			reg = <0x40008000 0x1000>;
+			label = "WATCHDOG";
 		};
 
 		uart4: uart@40009000 {
@@ -104,6 +150,7 @@
 			reg = <0x40009000 0x1000>;
 			interrupts = <21 3 20 3>;
 			interrupt-names = "tx", "rx";
+			clocks = <&sysclk>;
 			current-speed = <115200>;
 			label = "UART_4";
 		};
@@ -112,24 +159,36 @@
 			compatible = "arm,cmsdk-gpio";
 			reg = <0x40010000 0x1000>;
 			interrupts = <6 3>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			label = "GPIO_0";
 		};
 
 		gpio1: gpio@40011000 {
 			compatible = "arm,cmsdk-gpio";
 			reg = <0x40011000 0x1000>;
 			interrupts = <7 3>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			label = "GPIO_1";
 		};
 
 		gpio2: gpio@40012000 {
 			compatible = "arm,cmsdk-gpio";
 			reg = <0x40012000 0x1000>;
 			interrupts = <16 3>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			label = "GPIO_2";
 		};
 
 		gpio3: gpio@40013000 {
 			compatible = "arm,cmsdk-gpio";
 			reg = <0x40013000 0x1000>;
 			interrupts = <17 3>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			label = "GPIO_3";
 		};
 
 		eth0: eth@40200000 {
@@ -177,6 +236,37 @@
 			reg = <0x4002a000 0x1000>;
 			label = "I2C_SHIELD1";
 		};
+
+		gpio_led0: mps2_fpgaio@40028000 {
+			compatible = "arm,mps2-fpgaio-gpio";
+
+			reg = <0x40028000 0x4>;
+			gpio-controller;
+			#gpio-cells = <1>;
+			ngpios = <2>;
+			label = "FPGA_LED0";
+		};
+
+		gpio_button: mps2_fpgaio@40028008 {
+			compatible = "arm,mps2-fpgaio-gpio";
+
+			reg = <0x40028008 0x4>;
+			gpio-controller;
+			#gpio-cells = <1>;
+			ngpios = <2>;
+			label = "FPGA_BUTTON";
+		};
+
+		gpio_misc: mps2_fpgaio@4002804c {
+			compatible = "arm,mps2-fpgaio-gpio";
+
+			reg = <0x4002804c 0x4>;
+			gpio-controller;
+			#gpio-cells = <1>;
+			ngpios = <10>;
+			label = "FPGA_MISC";
+		};
+
 	};
 };
 

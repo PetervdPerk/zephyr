@@ -5,8 +5,8 @@
  */
 
 #include <zephyr.h>
-#include <misc/printk.h>
-#include <console.h>
+#include <sys/printk.h>
+#include <console/console.h>
 
 void main(void)
 {
@@ -15,7 +15,7 @@ void main(void)
 	printk("Start typing characters to see their hex codes printed\n");
 
 	while (1) {
-		u8_t c = console_getchar();
+		uint8_t c = console_getchar();
 
 		printk("char: [0x%x] %c\n", c, c);
 	}

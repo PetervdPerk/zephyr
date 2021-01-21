@@ -12,7 +12,14 @@ evaluate network bandwidth.
 Features
 *********
 
-- Compatible with iPerf_2.0.5.
+- Compatible with iPerf_2.0.5. Note that in newer iPerf versions,
+  an error message like this is printed and the server reported statistics
+  are missing.
+
+.. code-block:: console
+
+   LAST PACKET NOT RECEIVED!!!
+
 - Client or server mode allowed without need to modify the source code.
 
 Supported Boards

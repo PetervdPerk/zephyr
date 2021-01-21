@@ -1,37 +1,31 @@
-#
 # Copyright (c) 2018, STMicroelectronics
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: STM32 I2S
-version: 0.1
 
-description: >
-    This binding gives a base representation of the STM32 I2S controller
+description: STM32 I2S controller
 
-inherits:
-    !include i2s.yaml
+compatible: "st,stm32-i2s"
+
+include: [i2s-controller.yaml]
 
 properties:
-    compatible:
-      constraint: "st,stm32-i2s"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
-    interrupt-names:
-      type: stringlist
-      category: optional
-      description: readable string describing the interrupts
+    dmas:
+      required: true
 
-...
+    dma-names:
+      required: true
+
+    pinctrl-0:
+      type: phandles
+      required: false
+      description: |
+        Pin configuration for I2S signals.
+        We expect that the phandles will reference pinctrl nodes.
+
+        For example the I2S1 would be:
+        pinctrl-0 = <&i2s1_ck_pa5 &i2s1_sd_pa7>;

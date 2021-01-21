@@ -13,7 +13,7 @@ LOG_MODULE_REGISTER(net_test, CONFIG_NET_ICMPV6_LOG_LEVEL);
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 #include <linker/sections.h>
 
 #include <tc_util.h>
@@ -91,7 +91,12 @@ static struct net_icmpv6_handler test_handler2 = {
 
 void test_icmpv6(void)
 {
-	k_thread_priority_set(k_current_get(), K_PRIO_COOP(7));
+	if (IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)) {
+		k_thread_priority_set(k_current_get(),
+				K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1));
+	} else {
+		k_thread_priority_set(k_current_get(), K_PRIO_PREEMPT(9));
+	}
 
 	struct net_ipv6_hdr *hdr;
 	struct net_pkt *pkt;
@@ -102,10 +107,11 @@ void test_icmpv6(void)
 
 	pkt = net_pkt_alloc_with_buffer(NULL, ICMPV6_MSG_SIZE,
 					AF_UNSPEC, 0, K_SECONDS(1));
+	zassert_not_null(pkt, "Allocation failed");
 
 	net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv6_hdr));
 
-	net_pkt_write_new(pkt, icmpv6_inval_chksum, ICMPV6_MSG_SIZE);
+	net_pkt_write(pkt, icmpv6_inval_chksum, ICMPV6_MSG_SIZE);
 
 	hdr = (struct net_ipv6_hdr *)pkt->buffer->data;
 	net_pkt_cursor_init(pkt);
@@ -123,7 +129,7 @@ void test_icmpv6(void)
 	net_pkt_set_overwrite(pkt, false);
 	pkt->buffer->len = 0;
 
-	net_pkt_write_new(pkt, icmpv6_echo_rep, ICMPV6_MSG_SIZE);
+	net_pkt_write(pkt, icmpv6_echo_rep, ICMPV6_MSG_SIZE);
 
 	hdr = (struct net_ipv6_hdr *)pkt->buffer->data;
 	net_pkt_cursor_init(pkt);
@@ -142,7 +148,7 @@ void test_icmpv6(void)
 	net_pkt_set_overwrite(pkt, false);
 	pkt->buffer->len = 0;
 
-	net_pkt_write_new(pkt, icmpv6_echo_req, ICMPV6_MSG_SIZE);
+	net_pkt_write(pkt, icmpv6_echo_req, ICMPV6_MSG_SIZE);
 
 	hdr = (struct net_ipv6_hdr *)pkt->buffer->data;
 	net_pkt_cursor_init(pkt);

@@ -28,26 +28,6 @@ extern "C" {
 #endif
 
 /**
- * @brief Insert UDP packet into net_pkt after specific offset.
- *
- * @param pkt Network packet
- * @param offset Offset where to insert (typically after IP header)
- * @param src_port Destination port in network byte order.
- * @param dst_port Destination port in network byte order.
- *
- * @return Return network packet that contains the UDP packet or NULL if
- * there is an failure.
- */
-#if defined(CONFIG_NET_UDP)
-struct net_pkt *net_udp_insert(struct net_pkt *pkt,
-			       u16_t offset,
-			       u16_t src_port,
-			       u16_t dst_port);
-#else
-#define net_udp_insert(pkt, offset, src_port, dst_port) (pkt)
-#endif
-
-/**
  * @brief Create UDP packet into net_pkt
  *
  * Note: pkt's cursor should be set a the right position.
@@ -59,11 +39,11 @@ struct net_pkt *net_udp_insert(struct net_pkt *pkt,
  *
  * @return 0 on success, negative errno otherwise.
  */
-#if defined(CONFIG_NET_UDP)
-int net_udp_create(struct net_pkt *pkt, u16_t src_port, u16_t dst_port);
+#if defined(CONFIG_NET_NATIVE_UDP)
+int net_udp_create(struct net_pkt *pkt, uint16_t src_port, uint16_t dst_port);
 #else
 static inline int net_udp_create(struct net_pkt *pkt,
-				 u16_t src_port, u16_t dst_port)
+				 uint16_t src_port, uint16_t dst_port)
 {
 	ARG_UNUSED(pkt);
 	ARG_UNUSED(src_port);
@@ -82,7 +62,7 @@ static inline int net_udp_create(struct net_pkt *pkt,
  *
  * @return 0 on success, negative errno otherwise.
  */
-#if defined(CONFIG_NET_UDP)
+#if defined(CONFIG_NET_NATIVE_UDP)
 int net_udp_finalize(struct net_pkt *pkt);
 #else
 static inline int net_udp_finalize(struct net_pkt *pkt)
@@ -101,7 +81,7 @@ static inline int net_udp_finalize(struct net_pkt *pkt)
  *
  * @return UDP header on success, NULL on error
  */
-#if defined(CONFIG_NET_UDP)
+#if defined(CONFIG_NET_NATIVE_UDP)
 struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
 				  struct net_pkt_data_access *udp_access);
 #else
@@ -131,11 +111,11 @@ struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
  *
  * @return Return 0 if the registration succeed, <0 otherwise.
  */
-int net_udp_register(u8_t family,
+int net_udp_register(uint8_t family,
 		     const struct sockaddr *remote_addr,
 		     const struct sockaddr *local_addr,
-		     u16_t remote_port,
-		     u16_t local_port,
+		     uint16_t remote_port,
+		     uint16_t local_port,
 		     net_conn_cb_t cb,
 		     void *user_data,
 		     struct net_conn_handle **handle);

@@ -10,11 +10,11 @@ from os import path
 from runners.core import ZephyrBinaryRunner
 
 DEFAULT_ARC_GDB_PORT = 3333
-DEFAULT_PROPS_FILE = 'nsim.props'
+DEFAULT_PROPS_FILE = 'nsim_em.props'
 
 
 class NsimBinaryRunner(ZephyrBinaryRunner):
-    '''Runner front-end for the ARC si.'''
+    '''Runner front-end for the ARC nSIM.'''
 
     # This unusual 'flash' implementation matches the original shell script.
     #
@@ -27,8 +27,11 @@ class NsimBinaryRunner(ZephyrBinaryRunner):
                  tui=False,
                  gdb_port=DEFAULT_ARC_GDB_PORT,
                  props=DEFAULT_PROPS_FILE):
-        super(NsimBinaryRunner, self).__init__(cfg)
-        self.gdb_cmd = [cfg.gdb] + (['-tui'] if tui else [])
+        super().__init__(cfg)
+        if cfg.gdb is None:
+            self.gdb_cmd = None
+        else:
+            self.gdb_cmd = [cfg.gdb] + (['-tui'] if tui else [])
         self.nsim_cmd = ['nsimdrv']
         self.gdb_port = gdb_port
         self.props = props
@@ -45,16 +48,14 @@ class NsimBinaryRunner(ZephyrBinaryRunner):
                             help='nsim props file, defaults to nsim.props')
 
     @classmethod
-    def create(cls, cfg, args):
-        if cfg.gdb is None:
-            raise ValueError('--gdb not provided at command line')
-
+    def do_create(cls, cfg, args):
         return NsimBinaryRunner(
             cfg,
             gdb_port=args.gdb_port,
             props=args.props)
 
     def do_run(self, command, **kwargs):
+        self.require(self.nsim_cmd[0])
         kwargs['nsim-cfg'] = path.join(self.cfg.board_dir, 'support',
                                        self.props)
 
@@ -72,15 +73,18 @@ class NsimBinaryRunner(ZephyrBinaryRunner):
         self.check_call(cmd)
 
     def do_debug(self, **kwargs):
+        if self.gdb_cmd is None:
+            raise ValueError('Cannot debug; gdb is missing')
+
         config = kwargs['nsim-cfg']
 
         server_cmd = (self.nsim_cmd + ['-gdb',
                                        '-port={}'.format(self.gdb_port),
                                        '-propsfile', config])
-
         gdb_cmd = (self.gdb_cmd +
                    ['-ex', 'target remote :{}'.format(self.gdb_port),
                     '-ex', 'load', self.cfg.elf_file])
+        self.require(gdb_cmd[0])
 
         self.run_server_and_client(server_cmd, gdb_cmd)
 

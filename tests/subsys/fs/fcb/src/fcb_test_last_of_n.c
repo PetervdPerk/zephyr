@@ -7,18 +7,18 @@
 
 #include "fcb_test.h"
 
-void fcb_test_last_of_n(void)
+void test_fcb_last_of_n(void)
 {
-	const u8_t ENTRIES = 5U;
+	const uint8_t ENTRIES = 5U;
 	struct fcb *fcb;
 	int rc;
 	struct fcb_entry loc;
 	struct fcb_entry areas[ENTRIES];
-	u8_t test_data[128];
-	u8_t i;
+	uint8_t test_data[128] = {0};
+	uint8_t i;
 
 	fcb = &test_fcb;
-	fcb->f_scratch_cnt = 1;
+	fcb->f_scratch_cnt = 1U;
 
 	/* No fcbs available */
 	rc = fcb_offset_last_n(fcb, 1, &loc);
@@ -29,7 +29,7 @@ void fcb_test_last_of_n(void)
 	 */
 	for (i = 0U; i < ENTRIES; i++) {
 		rc = fcb_append(fcb, sizeof(test_data), &loc);
-		if (rc == FCB_ERR_NOSPACE) {
+		if (rc == -ENOSPC) {
 			break;
 		}
 

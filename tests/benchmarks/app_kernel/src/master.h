@@ -19,7 +19,7 @@
 
 #include <string.h>
 
-#include <misc/util.h>
+#include <sys/util.h>
 
 
 /* uncomment the define below to use floating point arithmetic */
@@ -172,9 +172,9 @@ extern struct k_mem_pool DEMOPOOL;
 #define PRINT_OVERFLOW_ERROR()						\
 	PRINT_F(output_file, __FILE__":%d Error: tick occurred\n", __LINE__)
 
-static inline u32_t BENCH_START(void)
+static inline uint32_t BENCH_START(void)
 {
-	u32_t et;
+	uint32_t et;
 
 	bench_test_start();
 	et = TIME_STAMP_DELTA_GET(0);

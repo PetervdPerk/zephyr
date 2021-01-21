@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
 set_ifndef(CC gcc)
 
-find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC}   PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC}   PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
 if(CMAKE_C_COMPILER STREQUAL CMAKE_C_COMPILER-NOTFOUND)
   message(FATAL_ERROR "Zephyr was unable to find the toolchain. Is the environment misconfigured?

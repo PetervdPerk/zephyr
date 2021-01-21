@@ -3,7 +3,8 @@ sample:
     behavior
   name: Flash shell
 tests:
-  test:
-    platform_whitelist: 96b_carbon frdm_k64f frdm_kw41z frdm_kl25z nucleo_f746zg
+  sample.drivers.flash.shell:
     tags: flash shell
+    filter: CONFIG_FLASH_HAS_DRIVER_ENABLED and dt_chosen_enabled("zephyr,flash-controller")
     harness: keyboard
+    min_ram: 12

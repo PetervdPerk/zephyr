@@ -5,6 +5,7 @@
  */
 #include <ztest.h>
 #include <posix/time.h>
+#include <posix/sys/time.h>
 #include <posix/unistd.h>
 
 #define SLEEP_SECONDS 1
@@ -12,7 +13,7 @@
 
 void test_posix_clock(void)
 {
-	s64_t nsecs_elapsed, secs_elapsed;
+	int64_t nsecs_elapsed, secs_elapsed;
 	struct timespec ts, te;
 
 	printk("POSIX clock APIs\n");
@@ -55,6 +56,15 @@ void test_posix_realtime(void)
 	struct timeval tv;
 
 	printk("POSIX clock set APIs\n");
+
+	/* Minimal sleep to align us to the next tick interval. This
+	 * helps with a case that 2 consecutive calls to clock_gettime()
+	 * below return different values. Note that it's still a workaround,
+	 * which may break, in which case follow the suggestion in the
+	 * comment above.
+	 */
+	k_usleep(1);
+
 	ret = clock_gettime(CLOCK_MONOTONIC, &mts);
 	zassert_equal(ret, 0, "Fail to get monotonic clock");
 
@@ -69,7 +79,7 @@ void test_posix_realtime(void)
 	 */
 	struct timespec nts;
 	nts.tv_sec = 1514821501;
-	nts.tv_nsec = NSEC_PER_SEC / 2;
+	nts.tv_nsec = NSEC_PER_SEC / 2U;
 
 	/* TESTPOINT: Pass invalid clock type */
 	zassert_equal(clock_settime(CLOCK_INVALID, &nts), -1,
@@ -83,33 +93,35 @@ void test_posix_realtime(void)
 	zassert_equal(ret, 0, "Fail to set realtime clock");
 
 	/*
-	 * Loop for 20 10ths of a second, sleeping a little bit for
-	 * each, making sure that the arithmetic roughly makes sense.
-	 * This tries to catch all of the boundary conditions of the
-	 * clock to make sure there are no errors in the arithmetic.
+	 * Loop 20 times, sleeping a little bit for each, making sure
+	 * that the arithmetic roughly makes sense.  This tries to
+	 * catch all of the boundary conditions of the clock to make
+	 * sure there are no errors in the arithmetic.
 	 */
-	s64_t last_delta = 0;
+	int64_t last_delta = 0;
 	for (int i = 1; i <= 20; i++) {
-		usleep(90 * USEC_PER_MSEC);
+		usleep(USEC_PER_MSEC * 90U);
 		ret = clock_gettime(CLOCK_REALTIME, &rts);
 		zassert_equal(ret, 0, "Fail to read realitime clock");
 
-		s64_t delta =
-			((s64_t)rts.tv_sec * NSEC_PER_SEC -
-			 (s64_t)nts.tv_sec * NSEC_PER_SEC) +
-			((s64_t)rts.tv_nsec - (s64_t)nts.tv_nsec);
+		int64_t delta =
+			((int64_t)rts.tv_sec * NSEC_PER_SEC -
+			 (int64_t)nts.tv_sec * NSEC_PER_SEC) +
+			((int64_t)rts.tv_nsec - (int64_t)nts.tv_nsec);
 
-		/* Make the delta 10ths of a second. */
-		delta /= (NSEC_PER_SEC / 1000);
+		/* Make the delta milliseconds. */
+		delta /= (NSEC_PER_SEC / 1000U);
 
 		zassert_true(delta > last_delta, "Clock moved backward");
-		s64_t error = delta - last_delta;
+		int64_t error = delta - last_delta;
 
 		/* printk("Delta %d: %lld\n", i, delta); */
 
-		/* Allow for a little drift */
-		zassert_true(error > 90, "Clock inaccurate");
-		zassert_true(error < 110, "Clock inaccurate");
+		/* Allow for a little drift upward, but not
+		 * downward
+		 */
+		zassert_true(error >= 90, "Clock inaccurate %d", error);
+		zassert_true(error <= 110, "Clock inaccurate %d", error);
 
 		last_delta = delta;
 	}

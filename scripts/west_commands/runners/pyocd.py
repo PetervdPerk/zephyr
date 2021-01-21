@@ -6,12 +6,11 @@
 
 import os
 
-from west import log
-
 from runners.core import ZephyrBinaryRunner, RunnerCaps, \
     BuildConfiguration
 
 DEFAULT_PYOCD_GDB_PORT = 3333
+DEFAULT_PYOCD_TELNET_PORT = 4444
 
 
 class PyOcdBinaryRunner(ZephyrBinaryRunner):
@@ -19,16 +18,19 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
 
     def __init__(self, cfg, target,
                  pyocd='pyocd',
-                 flash_addr=0x0, flash_opts=None,
-                 gdb_port=DEFAULT_PYOCD_GDB_PORT, tui=False,
-                 board_id=None, daparg=None, frequency=None):
-        super(PyOcdBinaryRunner, self).__init__(cfg)
+                 flash_addr=0x0, erase=False, flash_opts=None,
+                 gdb_port=DEFAULT_PYOCD_GDB_PORT,
+                 telnet_port=DEFAULT_PYOCD_TELNET_PORT, tui=False,
+                 board_id=None, daparg=None, frequency=None, tool_opt=None):
+        super().__init__(cfg)
 
         self.target_args = ['-t', target]
         self.pyocd = pyocd
         self.flash_addr_args = ['-a', hex(flash_addr)] if flash_addr else []
+        self.erase = erase
         self.gdb_cmd = [cfg.gdb] if cfg.gdb is not None else None
         self.gdb_port = gdb_port
+        self.telnet_port = telnet_port
         self.tui_args = ['-tui'] if tui else []
         self.hex_name = cfg.hex_file
         self.bin_name = cfg.bin_file
@@ -36,7 +38,7 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
 
         board_args = []
         if board_id is not None:
-            board_args = ['-b', board_id]
+            board_args = ['-u', board_id]
         self.board_args = board_args
 
         daparg_args = []
@@ -49,6 +51,11 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
             frequency_args = ['-f', frequency]
         self.frequency_args = frequency_args
 
+        tool_opt_args = []
+        if tool_opt is not None:
+            tool_opt_args = [tool_opt]
+        self.tool_opt_args = tool_opt_args
+
         self.flash_extra = flash_opts if flash_opts else []
 
     @classmethod
@@ -58,7 +65,7 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
     @classmethod
     def capabilities(cls):
         return RunnerCaps(commands={'flash', 'debug', 'debugserver', 'attach'},
-                          flash_addr=True)
+                          flash_addr=True, erase=True)
 
     @classmethod
     def do_add_parser(cls, parser):
@@ -71,43 +78,50 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
                             help='path to pyocd tool, default is pyocd')
         parser.add_argument('--flash-opt', default=[], action='append',
                             help='''Additional options for pyocd flash,
-                            e.g. \'-e chip\' to chip erase''')
+                            e.g. --flash-opt="-e=chip" to chip erase''')
         parser.add_argument('--frequency',
                             help='SWD clock frequency in Hz')
         parser.add_argument('--gdb-port', default=DEFAULT_PYOCD_GDB_PORT,
                             help='pyocd gdb port, defaults to {}'.format(
                                 DEFAULT_PYOCD_GDB_PORT))
+        parser.add_argument('--telnet-port', default=DEFAULT_PYOCD_TELNET_PORT,
+                            help='pyocd telnet port, defaults to {}'.format(
+                                DEFAULT_PYOCD_TELNET_PORT))
         parser.add_argument('--tui', default=False, action='store_true',
                             help='if given, GDB uses -tui')
         parser.add_argument('--board-id',
                             help='ID of board to flash, default is to prompt')
+        parser.add_argument('--tool-opt',
+                            help='''Additional options for pyocd Commander,
+                            e.g. \'--script=user.py\' ''')
 
     @classmethod
-    def create(cls, cfg, args):
-        daparg = os.environ.get('PYOCD_DAPARG')
-        if daparg:
-            log.wrn('Setting PYOCD_DAPARG in the environment is',
-                    'deprecated; use the --daparg option instead.')
-            if args.daparg is None:
-                log.dbg('Missing --daparg set to {} from environment'.format(
-                    daparg), level=log.VERBOSE_VERY)
-                args.daparg = daparg
-
+    def do_create(cls, cfg, args):
         build_conf = BuildConfiguration(cfg.build_dir)
         flash_addr = cls.get_flash_address(args, build_conf)
 
-        return PyOcdBinaryRunner(
+        ret = PyOcdBinaryRunner(
             cfg, args.target,
             pyocd=args.pyocd,
-            flash_addr=flash_addr, flash_opts=args.flash_opt,
-            gdb_port=args.gdb_port, tui=args.tui,
+            flash_addr=flash_addr, erase=args.erase, flash_opts=args.flash_opt,
+            gdb_port=args.gdb_port, telnet_port=args.telnet_port, tui=args.tui,
             board_id=args.board_id, daparg=args.daparg,
-            frequency=args.frequency)
+            frequency=args.frequency,
+            tool_opt=args.tool_opt)
+
+        daparg = os.environ.get('PYOCD_DAPARG')
+        if not ret.daparg_args and daparg:
+            ret.logger.warning('PYOCD_DAPARG is deprecated; use --daparg')
+            ret.logger.debug('--daparg={} via PYOCD_DAPARG'.format(daparg))
+            ret.daparg_args = ['-da', daparg]
+
+        return ret
 
     def port_args(self):
-        return ['-p', str(self.gdb_port)]
+        return ['-p', str(self.gdb_port), '-T', str(self.telnet_port)]
 
     def do_run(self, command, **kwargs):
+        self.require(self.pyocd)
         if command == 'flash':
             self.flash(**kwargs)
         else:
@@ -117,28 +131,36 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
         if os.path.isfile(self.hex_name):
             fname = self.hex_name
         elif os.path.isfile(self.bin_name):
+            self.logger.warning(
+                'hex file ({}) does not exist; falling back on .bin ({}). '.
+                format(self.hex_name, self.bin_name) +
+                'Consider enabling CONFIG_BUILD_OUTPUT_HEX.')
             fname = self.bin_name
         else:
             raise ValueError(
-                'Cannot flash; no hex ({}) or bin ({}) files'.format(
+                'Cannot flash; no hex ({}) or bin ({}) files found. '.format(
                     self.hex_name, self.bin_name))
+
+        erase_method = 'chip' if self.erase else 'sector'
 
         cmd = ([self.pyocd] +
                ['flash'] +
-               ['-e', 'sector'] +
+               ['-e', erase_method] +
                self.flash_addr_args +
                self.daparg_args +
                self.target_args +
                self.board_args +
                self.frequency_args +
+               self.tool_opt_args +
                self.flash_extra +
                [fname])
 
-        log.inf('Flashing Target Device')
+        self.logger.info('Flashing file: {}'.format(fname))
         self.check_call(cmd)
 
-    def print_gdbserver_message(self):
-        log.inf('pyOCD GDB server running on port {}'.format(self.gdb_port))
+    def log_gdbserver_message(self):
+        self.logger.info('pyOCD GDB server running on port {}'.
+                         format(self.gdb_port))
 
     def debug_debugserver(self, command, **kwargs):
         server_cmd = ([self.pyocd] +
@@ -147,10 +169,11 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
                       self.port_args() +
                       self.target_args +
                       self.board_args +
-                      self.frequency_args)
+                      self.frequency_args +
+                      self.tool_opt_args)
 
         if command == 'debugserver':
-            self.print_gdbserver_message()
+            self.log_gdbserver_message()
             self.check_call(server_cmd)
         else:
             if self.gdb_cmd is None:
@@ -166,5 +189,6 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
                                '-ex', 'monitor reset',
                                '-ex', 'load']
 
-            self.print_gdbserver_message()
+            self.require(client_cmd[0])
+            self.log_gdbserver_message()
             self.run_server_and_client(server_cmd, client_cmd)

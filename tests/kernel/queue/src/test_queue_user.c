@@ -15,8 +15,6 @@ static K_THREAD_STACK_DEFINE(child_stack, STACK_SIZE);
 static struct k_thread child_thread;
 static ZTEST_BMEM struct qdata qdata[LIST_LEN * 2];
 
-K_MEM_POOL_DEFINE(test_pool, 16, 96, 4, 4);
-
 /**
  * @brief Tests for queue
  * @defgroup kernel_queue_tests Queues
@@ -60,10 +58,15 @@ void child_thread_get(void *p1, void *p2, void *p3)
 }
 
 /**
- * @brief Verify queue elements from a user thread
+ * @brief Verify queue elements and cancel wait from a user thread
+ *
  * @details The test adds elements to queue and then
  * verified by the child user thread.
+ * Get data from a empty queue,and use K_FORVER to wait for available
+ * And to cancel wait from current thread.
+ *
  * @ingroup kernel_queue_tests
+ *
  * @see k_queue_append(), k_queue_alloc_append(),
  * k_queue_init(), k_queue_cancel_wait()
  */
@@ -75,8 +78,6 @@ void test_queue_supv_to_user(void)
 
 	struct k_queue *q;
 	struct k_sem *sem;
-
-	k_thread_resource_pool_assign(k_current_get(), &test_pool);
 
 	q = k_object_alloc(K_OBJ_QUEUE);
 	zassert_not_null(q, "no memory for allocated queue object");
@@ -104,7 +105,7 @@ void test_queue_supv_to_user(void)
 
 	k_thread_create(&child_thread, child_stack, STACK_SIZE,
 			child_thread_get, q, sem, NULL, K_HIGHEST_THREAD_PRIO,
-			K_USER | K_INHERIT_PERMS, 0);
+			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 
 	k_yield();
 
@@ -114,9 +115,76 @@ void test_queue_supv_to_user(void)
 }
 
 /**
+ * @brief verify allocate and feature "Last In, First Out"
+ *
+ * @details Create a new queue
+ * And allocated memory for the queue
+ * Initialize and insert data item in sequence.
+ * Verify the feather "Last in,First out"
+ *
+ * @ingroup kernel_queue_tests
+ *
+ * @see k_queue_alloc_prepend()
+ */
+void test_queue_alloc_prepend_user(void)
+{
+	struct k_queue *q;
+
+	q = k_object_alloc(K_OBJ_QUEUE);
+	zassert_not_null(q, "no memory for allocated queue object");
+	k_queue_init(q);
+
+	for (int i = 0; i < LIST_LEN * 2; i++) {
+		qdata[i].data = i;
+		zassert_false(k_queue_alloc_prepend(q, &qdata[i]), NULL);
+	}
+
+	for (int i = (LIST_LEN * 2) - 1; i >= 0; i--) {
+		struct qdata *qd;
+
+		qd = k_queue_get(q, K_NO_WAIT);
+		zassert_true(qd != NULL, NULL);
+		zassert_equal(qd->data, i, NULL);
+	}
+}
+
+/**
+ * @brief verify feature of queue "First In, First Out"
+ *
+ * @details Create a new queue
+ * And allocated memory for the queue
+ * Initialize and insert data item in sequence.
+ * Verify the feather "First in,First out"
+ *
+ * @ingroup kernel_queue_tests
+ *
+ * @see k_queue_init(), k_queue_alloc_append()
+ */
+void test_queue_alloc_append_user(void)
+{
+	struct k_queue *q;
+
+	q = k_object_alloc(K_OBJ_QUEUE);
+	zassert_not_null(q, "no memory for allocated queue object");
+	k_queue_init(q);
+
+	for (int i = 0; i < LIST_LEN * 2; i++) {
+		qdata[i].data = i;
+		zassert_false(k_queue_alloc_append(q, &qdata[i]), NULL);
+	}
+
+	for (int i = 0; i < LIST_LEN * 2; i++) {
+		struct qdata *qd;
+
+		qd = k_queue_get(q, K_NO_WAIT);
+		zassert_true(qd != NULL, NULL);
+		zassert_equal(qd->data, i, NULL);
+	}
+}
+
+/**
  * @brief Test to verify free of allocated elements of queue
  * @ingroup kernel_queue_tests
- * @see k_mem_pool_alloc(), k_mem_pool_free()
  */
 void test_auto_free(void)
 {
@@ -127,20 +195,12 @@ void test_auto_free(void)
 	 * threads with permissions exit.
 	 */
 
-	struct k_mem_block b[4];
+	void *b[4];
 	int i;
 
 	for (i = 0; i < 4; i++) {
-		zassert_false(k_mem_pool_alloc(&test_pool, &b[i], 64,
-					       K_FOREVER),
-			      "memory not auto released!");
-	}
-
-	/* Free everything so that the pool is back to a pristine state in
-	 * case we want to use it again.
-	 */
-	for (i = 0; i < 4; i++) {
-		k_mem_pool_free(&b[i]);
+		b[i] = k_heap_alloc(&test_pool, 64, K_FOREVER);
+		zassert_true(b[i] != NULL, "memory not auto released!");
 	}
 }
 

@@ -23,12 +23,9 @@
  * completeness.
  */
 
-#include <gen_offset.h> /* located in kernel/arch/common/include */
-
-/* list of headers that define whose structure offsets will be generated */
-
-#include <kernel_structs.h>
-
+#include <kernel.h>
+#include <kernel_arch_data.h>
+#include <gen_offset.h>
 #include <kernel_offsets.h>
 
 /* Xtensa-specific k_thread structure member offsets */
@@ -49,9 +46,6 @@ GEN_OFFSET_SYM(__esf_t, pc);
 
 /* size of the entire __esf_t structure */
 GEN_ABSOLUTE_SYM(____esf_t_SIZEOF, sizeof(__esf_t));
-
-/* size of the entire preempt registers structure */
-GEN_ABSOLUTE_SYM(__tPreempt_SIZEOF, sizeof(_caller_saved_t));
 
 /* size of the struct k_thread structure without save area for coproc regs */
 GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF,

@@ -10,7 +10,7 @@ K_THREAD_STACK_EXTERN(tstack);
 extern struct k_thread tdata;
 extern struct k_msgq msgq;
 static ZTEST_BMEM char __aligned(4) tbuffer[MSG_SIZE * MSGQ_LEN];
-static ZTEST_DMEM u32_t data[MSGQ_LEN] = { MSG0, MSG1 };
+static ZTEST_DMEM uint32_t data[MSGQ_LEN] = { MSG0, MSG1 };
 
 static void tThread_entry(void *p1, void *p2, void *p3)
 {
@@ -31,8 +31,9 @@ static void purge_when_put(struct k_msgq *q)
 	/*create another thread waiting to put msg*/
 	k_thread_create(&tdata, tstack, STACK_SIZE,
 			tThread_entry, q, NULL, NULL,
-			K_PRIO_PREEMPT(0), K_USER | K_INHERIT_PERMS, 0);
-	k_sleep(TIMEOUT >> 1);
+			K_PRIO_PREEMPT(0), K_USER | K_INHERIT_PERMS,
+			K_NO_WAIT);
+	k_msleep(TIMEOUT_MS >> 1);
 	/**TESTPOINT: msgq purge while another thread waiting to put msg*/
 	k_msgq_purge(q);
 
@@ -41,6 +42,8 @@ static void purge_when_put(struct k_msgq *q)
 		ret = k_msgq_put(q, (void *)&data[i], K_NO_WAIT);
 		zassert_equal(ret, 0, NULL);
 	}
+
+	k_thread_abort(&tdata);
 }
 
 /**

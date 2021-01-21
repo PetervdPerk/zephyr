@@ -1,4 +1,4 @@
-.. _logger:
+.. _logging_api:
 
 Logging
 #######
@@ -8,9 +8,10 @@ Logging
     :depth: 2
 
 The logger API provides a common interface to process messages issued by
-developers. These messages are processed by active backends. Currently only the
-UART backend is available. However, a generic backend interface exists and more
-backends can be added and easily plugged in to the system.
+developers. Messages are passed through a frontend and are then
+processed by active backends.
+Custom frontend and backends can be used if needed.
+Default configuration uses built-in frontend and UART backend.
 
 Summary of logger features:
 
@@ -18,16 +19,17 @@ Summary of logger features:
   consuming operations to a known context instead of processing and sending
   the log message when called.
 - Multiple backends supported (up to 9 backends).
+- Custom frontend supported.
 - Compile time filtering on module level.
 - Run time filtering independent for each backend.
 - Additional run time filtering on module instance level.
 - Timestamping with user provided function.
-- Dedicated API for dumping data
-- Dedicated API for handling transient strings
+- Dedicated API for dumping data.
+- Dedicated API for handling transient strings.
 - Panic support - in panic mode logger switches to blocking, synchronous
   processing.
 - Printk support - printk message can be redirected to the logger.
-- Design ready for multi-domain/multi-processor system
+- Design ready for multi-domain/multi-processor system.
 
 Logger API is highly configurable at compile time as well as at run time. Using
 Kconfig options (see :ref:`logger_kconfig`) logs can be gradually removed from
@@ -67,8 +69,8 @@ Each module which is using the logger must specify its unique name and
 register itself to the logger. If module consists of more than one file,
 registration is performed in one file but each file must define a module name.
 
-Logger is designed to be thread safe and minimizes time needed to log the
-message. Time consuming operations like string formatting or access to the
+Logger's default frontend is designed to be thread safe and minimizes time needed
+to log the message. Time consuming operations like string formatting or access to the
 transport are not performed by default when logger API is called. When logger
 API is called a message is created and added to the list. Dedicated,
 configurable pool of log messages is used. There are 2 types of messages:
@@ -95,6 +97,11 @@ oldest one are discarded.
 :option:`CONFIG_LOG_MODE_NO_OVERFLOW`: When logger cannot allocate new message
 it is discarded.
 
+:option:`CONFIG_LOG_BLOCK_IN_THREAD`: If enabled and new log message cannot
+be allocated thread context will block for up to
+:option:`CONFIG_LOG_BLOCK_IN_THREAD_TIMEOUT_MS` or until log message is
+allocated.
+
 :option:`CONFIG_LOG_DEFAULT_LEVEL`: Default level, sets the logging level
 used by modules that are not setting their own logging level.
 
@@ -104,17 +111,17 @@ it is not set or set lower than the override value.
 :option:`CONFIG_LOG_MAX_LEVEL`: Maximal (lowest severity) level which is
 compiled in.
 
-:option:`CONFIG_LOG_FUNC_NAME_PREFIX_ERR`: Prepend ERROR log messages with
-function name.
+:option:`CONFIG_LOG_FUNC_NAME_PREFIX_ERR`: Prepend standard ERROR log messages
+with function name. Hexdump messages are not prepended.
 
-:option:`CONFIG_LOG_FUNC_NAME_PREFIX_WRN`: Prepend WARNING log messages with
-function name.
+:option:`CONFIG_LOG_FUNC_NAME_PREFIX_WRN`: Prepend standard WARNING log messages
+with function name. Hexdump messages are not prepended.
 
-:option:`CONFIG_LOG_FUNC_NAME_PREFIX_INF`: Prepend INFO log messages with
-function name.
+:option:`CONFIG_LOG_FUNC_NAME_PREFIX_INF`: Prepend standard INFO log messages
+with function name. Hexdump messages are not prepended.
 
-:option:`CONFIG_LOG_FUNC_NAME_PREFIX_DBG`: Prepend DEBUG log messages with
-function name.
+:option:`CONFIG_LOG_FUNC_NAME_PREFIX_DBG`: Prepend standard DEBUG log messages
+with function name. Hexdump messages are not prepended.
 
 :option:`CONFIG_LOG_PRINTK`: Redirect printk calls to the logger.
 
@@ -126,7 +133,7 @@ of the log macro call. Note that it can lead to errors when logger is used in
 the interrupt context.
 
 :option:`CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD`: When number of buffered log
-messages reaches the threshold dedicated thread (see :cpp:func:`log_thread_set`)
+messages reaches the threshold dedicated thread (see :c:func:`log_thread_set`)
 is waken up. If :option:`CONFIG_LOG_PROCESS_THREAD` is enabled then this
 threshold is used by the internal thread.
 
@@ -137,6 +144,9 @@ which handles log processing.
 message pool. Single message capable of storing standard log with up to 3
 arguments or hexdump message with 12 bytes of data take 32 bytes.
 
+:option:`CONFIG_LOG_DETECT_MISSED_STRDUP`: Enable detection of missed transient
+strings handling.
+
 :option:`CONFIG_LOG_STRDUP_MAX_STRING`: Longest string that can be duplicated
 using log_strdup().
 
@@ -144,6 +154,8 @@ using log_strdup().
 log_strdup().
 
 :option:`CONFIG_LOG_DOMAIN_ID`: Domain ID. Valid in multi-domain systems.
+
+:option:`CONFIG_LOG_FRONTEND`: Redirect logs to a custom frontend.
 
 :option:`CONFIG_LOG_BACKEND_UART`: Enabled build-in UART backend.
 
@@ -235,7 +247,7 @@ In order to use instance level filtering following steps must be performed:
 
    struct foo_object {
    	LOG_INSTANCE_PTR_DECLARE(log);
-   	u32_t id;
+   	uint32_t id;
    }
 
 - module must provide macro for instantiation. In that macro, logger instance
@@ -283,7 +295,7 @@ Logger can be controlled using API defined in
 :zephyr_file:`include/logging/log_ctrl.h`. Logger must be initialized before it can be
 used. Optionally, user can provide function which returns timestamp value. If
 not provided, :c:macro:`k_cycle_get_32` is used for timestamping.
-:cpp:func:`log_process` function is used to trigger processing of one log
+:c:func:`log_process` function is used to trigger processing of one log
 message (if pending). Function returns true if there is more messages pending.
 
 Following snippet shows how logger can be processed in simple forever loop.
@@ -304,7 +316,7 @@ Following snippet shows how logger can be processed in simple forever loop.
    }
 
 Logger controlling API contains also functions for run time reconfiguration of
-the logger. If run time filtering is enabled the :cpp:func:`log_filter_set` can
+the logger. If run time filtering is enabled the :c:func:`log_filter_set` can
 be used to change maximal severity level for given module. Module is identified
 by source ID and domain ID. Source ID can be retrieved if source name is known
 by iterating through all registered sources.
@@ -324,9 +336,9 @@ Logger panic
 In case of error condition system usually can no longer rely on scheduler or
 interrupts. In that situation deferred log message processing is not an option.
 Logger controlling API provides a function for entering into panic mode
-(:cpp:func:`log_panic`) which should be called in such situation.
+(:c:func:`log_panic`) which should be called in such situation.
 
-When :cpp:func:`log_panic()` is called, logger sends _panic_ notification to
+When :c:func:`log_panic` is called, logger sends _panic_ notification to
 all active backends. It is backend responsibility to react. Backend should
 switch to blocking, synchronous mode (stop using interrupts) or disable itself.
 Once all backends are notified, logger flushes all buffered messages. Since
@@ -346,10 +358,10 @@ Logger consists of 3 main parts:
 Log message is generated by a source of logging which can be a module or
 instance of a module.
 
-Frontend
-========
+Default Frontend
+================
 
-Frontend is engaged when logger API is called in a source of logging (e.g.
+Default frontend is engaged when logger API is called in a source of logging (e.g.
 :c:macro:`LOG_INF`) and is responsible for filtering a message (compile and run
 time), allocating buffer for the message, creating the message and putting that
 message into the list of pending messages. Since logger API can be called in an
@@ -396,6 +408,15 @@ particular source will be buffered.
 | INF  | ERR  | INF  | OFF  | ... | OFF  |
 +------+------+------+------+-----+------+
 
+Custom Frontend
+===============
+
+Custom frontend is enabled using :option:`CONFIG_LOG_FRONTEND`. Logs are redirected
+to functions declared in :zephyr_file:`include/logging/log_frontend.h`.
+This may be required in very time-sensitive cases, but this hurts
+logger functionality. All features from default frontend, core and all backends
+are not used.
+
 Core
 ====
 
@@ -418,7 +439,8 @@ copies of strings.  The buffer size and count is configurable
 (see :option:`CONFIG_LOG_STRDUP_MAX_STRING` and
 :option:`CONFIG_LOG_STRDUP_BUF_COUNT`).
 
-If a string argument is transient, the user must call cpp:func:`log_strdup` to
+
+If a string argument is transient, the user must call :c:func:`log_strdup` to
 duplicate the passed string into a buffer from the pool. See the examples below.
 If a strdup buffer cannot be allocated, a warning message is logged and an error
 code returned indicating :option:`CONFIG_LOG_STRDUP_BUF_COUNT` should be
@@ -431,28 +453,34 @@ increased. Buffers are freed together with the log message.
    LOG_INF("logging transient string: %s", log_strdup(local_str));
    local_str[0] = '\0'; /* String can be modified, logger will use duplicate."
 
+When :option:`CONFIG_LOG_DETECT_MISSED_STRDUP` is enabled logger will scan
+each log message and report if string format specifier is found and string
+address is not in read only memory section or does not belong to memory pool
+dedicated to string duplicates. It indictes that :c:func:`log_strdup` is
+missing in a call to log a message, such as ``LOG_INF``.
+
 Logger backends
 ===============
 
 Logger supports up to 9 concurrent backends. Logger backend interface consists
 of two functions:
 
-- :cpp:func:`log_backend_put` - backend gets log message.
-- :cpp:func:`log_backend_panic` - on that call backend is notified that it must
+- :c:func:`log_backend_put` - backend gets log message.
+- :c:func:`log_backend_panic` - on that call backend is notified that it must
   switch to panic (synchronous) mode. If backend cannot support synchronous,
   interrupt-less operation (e.g. network) it should stop any processing.
 
 The log message contains a reference counter tracking how many backends are
 processing the message. On receiving a message backend must claim it by calling
-:cpp:func:`log_msg_get()` on that message which increments a reference counter.
+:c:func:`log_msg_get` on that message which increments a reference counter.
 Once message is processed, backend puts back the message
-(:cpp:func:`log_msg_put()`) decrementing a reference counter. On last
-:cpp:func:`log_msg_put`, when reference counter reaches 0, message is returned
+(:c:func:`log_msg_put`) decrementing a reference counter. On last
+:c:func:`log_msg_put`, when reference counter reaches 0, message is returned
 to the pool. It is up to the backend how message is processed. If backend
 intends to format message into the string, helper function for that are
 available in :zephyr_file:`include/logging/log_output.h`.
 
-Example message formatted using :cpp:func:`log_output_msg_process`.
+Example message formatted using :c:func:`log_output_msg_process`.
 
 .. code-block:: console
 
@@ -461,7 +489,7 @@ Example message formatted using :cpp:func:`log_output_msg_process`.
 .. note::
 
    The message pool can be starved if a backend does not call
-   :cpp:func:`log_msg_put` when it is done processing a message. The logger
+   :c:func:`log_msg_put` when it is done processing a message. The logger
    core has no means to force messages back to the pool if they're still marked
    as in use (with a non-zero reference counter).
 
@@ -482,7 +510,7 @@ Example message formatted using :cpp:func:`log_output_msg_process`.
 Logger backends are registered to the logger using
 :c:macro:`LOG_BACKEND_DEFINE` macro. The macro creates an instance in the
 dedicated memory section. Backends can be dynamically enabled
-(:cpp:func:`log_backend_enable`) and disabled.
+(:c:func:`log_backend_enable`) and disabled.
 
 Limitations
 ***********
@@ -528,4 +556,3 @@ Logger output formatting
 
 .. doxygengroup:: log_output
    :project: Zephyr
-

@@ -21,7 +21,7 @@
 #include <stdio.h>
 #include <zephyr.h>
 #include <arch/cpu.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 /**
  * @class semaphore the basic pure virtual semaphore class
@@ -94,7 +94,7 @@ int cpp_semaphore::wait(void)
  */
 int cpp_semaphore::wait(int timeout)
 {
-	return k_sem_take(&_sema_internal, timeout);
+	return k_sem_take(&_sema_internal, K_MSEC(timeout));
 }
 
 /**
@@ -127,7 +127,7 @@ void coop_thread_entry(void)
 		printk("%s: Hello World!\n", __FUNCTION__);
 
 		/* wait a while, then let main thread have a turn */
-		k_timer_start(&timer, SLEEPTIME, 0);
+		k_timer_start(&timer, K_MSEC(SLEEPTIME), K_NO_WAIT);
 		k_timer_status_sync(&timer);
 		sem_main.give();
 	}
@@ -139,7 +139,7 @@ int main(void)
 
 	k_thread_create(&coop_thread, coop_stack, STACKSIZE,
 			(k_thread_entry_t) coop_thread_entry,
-			NULL, NULL, NULL, K_PRIO_COOP(7), 0, 0);
+			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 	k_timer_init(&timer, NULL, NULL);
 
 	while (1) {
@@ -147,7 +147,7 @@ int main(void)
 		printk("%s: Hello World!\n", __FUNCTION__);
 
 		/* wait a while, then let coop thread have a turn */
-		k_timer_start(&timer, SLEEPTIME, 0);
+		k_timer_start(&timer, K_MSEC(SLEEPTIME), K_NO_WAIT);
 		k_timer_status_sync(&timer);
 		sem_coop.give();
 

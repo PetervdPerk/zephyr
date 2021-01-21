@@ -6,8 +6,9 @@
 
 #include <errno.h>
 #include <net/socket.h>
+#include <syscall_handler.h>
 
-int zsock_gethostname(char *buf, size_t len)
+int z_impl_zsock_gethostname(char *buf, size_t len)
 {
 	const char *p = net_hostname_get();
 
@@ -15,3 +16,12 @@ int zsock_gethostname(char *buf, size_t len)
 
 	return 0;
 }
+
+#ifdef CONFIG_USERSPACE
+static inline int z_vrfy_zsock_gethostname(char *buf, size_t len)
+{
+	Z_OOPS(Z_SYSCALL_MEMORY_WRITE(buf, len));
+	return z_impl_zsock_gethostname(buf, len);
+}
+#include <syscalls/zsock_gethostname_mrsh.c>
+#endif

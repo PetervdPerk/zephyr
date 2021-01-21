@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 if BOARD_NATIVE_POSIX
 
 config BUILD_OUTPUT_BIN
@@ -10,6 +12,7 @@ config OUTPUT_PRINT_MEMORY_USAGE
 	default n
 
 config BOARD
+	default "native_posix_64" if BOARD_NATIVE_POSIX_64BIT
 	default "native_posix"
 
 if NETWORKING
@@ -22,27 +25,18 @@ config ETH_NATIVE_POSIX
 
 endif # NETWORKING
 
-if ENTROPY_GENERATOR
-
 config FAKE_ENTROPY_NATIVE_POSIX
 	default y
-
-endif # ENTROPY_GENERATOR
-
-if BT_HCI
+	depends on ENTROPY_GENERATOR
 
 choice BT_HCI_BUS_TYPE
 	default BT_USERCHAN
+	depends on BT_HCI
 endchoice
-
-endif # BT_HCI
-
-if SERIAL
 
 config UART_NATIVE_POSIX
 	default y
-
-endif # SERIAL
+	depends on SERIAL
 
 if LOG
 
@@ -69,27 +63,26 @@ config NATIVE_POSIX_CONSOLE
 config UART_CONSOLE
 	default y if SERIAL
 
-endif #CONSOLE
-
-if DISPLAY
+endif # CONSOLE
 
 config SDL_DISPLAY
 	default y
+	depends on DISPLAY
 
-endif # DISPLAY
-
-if TRACING_CTF
-
-config TRACING_CTF_BOTTOM_POSIX
+config KSCAN_SDL
 	default y
+	depends on KSCAN
 
-endif # TRACING_CTF
-
-endif # BOARD_NATIVE_POSIX
-
-if USB
+config FLASH_SIMULATOR
+	default y
+	depends on FLASH
 
 config USB_NATIVE_POSIX
-	def_bool y
+	default y
+	depends on USB
 
-endif # USB
+config EEPROM_SIMULATOR
+	default y
+	depends on EEPROM
+
+endif # BOARD_NATIVE_POSIX

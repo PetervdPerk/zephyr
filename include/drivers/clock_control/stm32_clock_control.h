@@ -9,15 +9,15 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_
 #define ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_
 
-#include <clock_control.h>
+#include <drivers/clock_control.h>
 #include <dt-bindings/clock/stm32_clock.h>
 
 /* common clock control device name for all STM32 chips */
-#define STM32_CLOCK_CONTROL_NAME "stm32-cc"
+#define STM32_CLOCK_CONTROL_NAME DT_LABEL(DT_NODELABEL(rcc))
 
 struct stm32_pclken {
-	u32_t bus;
-	u32_t enr;
+	uint32_t bus;
+	uint32_t enr;
 };
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_STM32_CLOCK_CONTROL_H_ */

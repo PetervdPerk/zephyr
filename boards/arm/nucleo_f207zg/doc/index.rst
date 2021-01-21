@@ -30,9 +30,7 @@ some highlights of the Nucleo F207ZG board:
 - Two push-buttons: USER and RESET
 
 .. image:: img/nucleo_f207zg.png
-   :width: 720px
    :align: center
-   :height: 720px
    :alt: Nucleo F207ZG
 
 More information about the board can be found at the `Nucleo F207ZG website`_.
@@ -92,6 +90,10 @@ The Zephyr nucleo_207zg board configuration supports the following hardware feat
 +-----------+------------+-------------------------------------+
 | WATCHDOG  | on-chip    | independent watchdog                |
 +-----------+------------+-------------------------------------+
+| ADC       | on-chip    | ADC Controller                      |
++-----------+------------+-------------------------------------+
+| DAC       | on-chip    | DAC Controller                      |
++-----------+------------+-------------------------------------+
 
 Other hardware features are not yet supported on this Zephyr port.
 
@@ -142,6 +144,8 @@ Default Zephyr Peripheral Mapping:
 - LD1 : PB0
 - LD2 : PB7
 - LD3 : PB14
+- DAC: PA4
+- ADC: PA0
 
 System Clock
 ------------

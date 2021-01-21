@@ -6,9 +6,9 @@
 
 #include <ztest.h>
 #include <soc.h>
-#include <kernel_structs.h>
+#include <kernel_arch_func.h>
 #include <device.h>
-#include <dma.h>
+#include <drivers/dma.h>
 
 #define DMA_BUFF_SIZE		1024
 
@@ -26,7 +26,8 @@ static char rx_data[DMA_BUFF_SIZE];
 static struct dma_config dma_cfg = {0};
 static struct dma_block_config dma_block_cfg = {0};
 
-static void dma_user_callback(void *arg, u32_t id, int error_code)
+static void dma_user_callback(const struct device *dma_dev, void *arg,
+			      uint32_t id, int error_code)
 {
 	if (error_code == 0) {
 		TC_PRINT("DMA completed successfully\n");
@@ -39,8 +40,8 @@ static void dma_user_callback(void *arg, u32_t id, int error_code)
 
 void test_msgdma(void)
 {
-	struct device *dma;
-	static u32_t chan_id;
+	const struct device *dma;
+	static uint32_t chan_id;
 	int i;
 
 	dma = device_get_binding(CONFIG_DMA_0_NAME);
@@ -53,12 +54,12 @@ void test_msgdma(void)
 
 	/* Init DMA config info */
 	dma_cfg.channel_direction = MEMORY_TO_MEMORY;
-	dma_cfg.source_data_size = 1;
-	dma_cfg.dest_data_size = 1;
-	dma_cfg.source_burst_length = 1;
-	dma_cfg.dest_burst_length = 1;
+	dma_cfg.source_data_size = 1U;
+	dma_cfg.dest_data_size = 1U;
+	dma_cfg.source_burst_length = 1U;
+	dma_cfg.dest_burst_length = 1U;
 	dma_cfg.dma_callback = dma_user_callback;
-	dma_cfg.block_count = 1;
+	dma_cfg.block_count = 1U;
 	dma_cfg.head_block = &dma_block_cfg;
 
 	/*
@@ -69,15 +70,15 @@ void test_msgdma(void)
 
 	/* Init DMA descriptor info */
 	dma_block_cfg.block_size = DMA_BUFF_SIZE;
-	dma_block_cfg.source_address = (u32_t)tx_data;
-	dma_block_cfg.dest_address = (u32_t)rx_data;
+	dma_block_cfg.source_address = (uint32_t)tx_data;
+	dma_block_cfg.dest_address = (uint32_t)rx_data;
 
 	/* Configure DMA */
 	zassert_true(dma_config(dma, chan_id, &dma_cfg) == 0,
 						"DMA config error");
 
 	/* Make sure all the data is written out to memory */
-	_nios2_dcache_flush_all();
+	z_nios2_dcache_flush_all();
 
 	/* Start DMA operation */
 	zassert_true(dma_start(dma, chan_id) == 0, "DMA start error");
@@ -87,7 +88,7 @@ void test_msgdma(void)
 	}
 
 	/* Invalidate the data cache */
-	_nios2_dcache_flush_no_writeback(rx_data, DMA_BUFF_SIZE);
+	z_nios2_dcache_flush_no_writeback(rx_data, DMA_BUFF_SIZE);
 
 	zassert_true(dma_stat == DMA_OP_STAT_SUCCESS,
 			"Nios-II DMA operation failed!!");

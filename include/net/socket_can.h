@@ -13,14 +13,14 @@
 #ifndef ZEPHYR_INCLUDE_NET_SOCKET_CAN_H_
 #define ZEPHYR_INCLUDE_NET_SOCKET_CAN_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <zephyr/types.h>
 #include <net/net_ip.h>
 #include <net/net_if.h>
-#include <can.h>
+#include <drivers/can.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Socket CAN library
@@ -63,16 +63,26 @@ struct canbus_api {
 	struct net_if_api iface_api;
 
 	/** Send a CAN packet by socket */
-	int (*send)(struct device *dev, struct net_pkt *pkt);
+	int (*send)(const struct device *dev, struct net_pkt *pkt);
+
+	/** Close the related CAN socket */
+	void (*close)(const struct device *dev, int filter_id);
 
 	/** Set socket CAN option */
-	int (*setsockopt)(struct device *dev, void *obj, int level, int optname,
+	int (*setsockopt)(const struct device *dev, void *obj, int level,
+			  int optname,
 			  const void *optval, socklen_t optlen);
 
 	/** Get socket CAN option */
-	int (*getsockopt)(struct device *dev, void *obj, int level, int optname,
+	int (*getsockopt)(const struct device *dev, void *obj, int level,
+			  int optname,
 			  const void *optval, socklen_t *optlen);
 };
+
+/* Make sure that the network interface API is properly setup inside
+ * CANBUS API struct (it is the first one).
+ */
+BUILD_ASSERT(offsetof(struct canbus_api, iface_api) == 0);
 
 /**
  * @}

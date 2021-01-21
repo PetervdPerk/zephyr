@@ -32,8 +32,7 @@ def debug(text):
         sys.stdout.write(os.path.basename(sys.argv[0]) + ": " + text + "\n")
 
 def error(text):
-    sys.stderr.write(os.path.basename(sys.argv[0]) + ": " + text + "\n")
-    raise Exception()
+    sys.exit(os.path.basename(sys.argv[0]) + ": error: " + text + "\n")
 
 def endian_prefix():
     if args.big_endian:
@@ -41,13 +40,13 @@ def endian_prefix():
     else:
         return "<"
 
-def read_intlist(intlist_path):
+def read_intlist(intlist_path, syms):
     """read a binary file containing the contents of the kernel's .intList
     section. This is an instance of a header created by
     include/linker/intlist.ld:
 
      struct {
-       u32_t num_vectors;       <- typically CONFIG_NUM_IRQS
+       uint32_t num_vectors;       <- typically CONFIG_NUM_IRQS
        struct _isr_list isrs[]; <- Usually of smaller size than num_vectors
     }
 
@@ -56,13 +55,13 @@ def read_intlist(intlist_path):
 
     struct _isr_list {
         /** IRQ line number */
-        s32_t irq;
+        int32_t irq;
         /** Flags for this IRQ, see ISR_FLAG_* definitions */
-        s32_t flags;
+        int32_t flags;
         /** ISR to call */
         void *func;
         /** Parameter for non-direct IRQs */
-        void *param;
+        const void *param;
     };
     """
 
@@ -71,7 +70,10 @@ def read_intlist(intlist_path):
     prefix = endian_prefix()
 
     intlist_header_fmt = prefix + "II"
-    intlist_entry_fmt = prefix + "iiII"
+    if "CONFIG_64BIT" in syms:
+        intlist_entry_fmt = prefix + "iiQQ"
+    else:
+        intlist_entry_fmt = prefix + "iiII"
 
     with open(intlist_path, "rb") as fp:
         intdata = fp.read()
@@ -102,8 +104,8 @@ def read_intlist(intlist_path):
 def parse_args():
     global args
 
-    parser = argparse.ArgumentParser(description = __doc__,
-            formatter_class = argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+            formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument("-e", "--big-endian", action="store_true",
             help="Target encodes data in big-endian format (little endian is "
@@ -132,11 +134,12 @@ source_header = """
 #include <arch/cpu.h>
 
 #if defined(CONFIG_GEN_SW_ISR_TABLE) && defined(CONFIG_GEN_IRQ_VECTOR_TABLE)
-#define ISR_WRAPPER ((u32_t)&_isr_wrapper)
+#define ISR_WRAPPER ((uintptr_t)&_isr_wrapper)
 #else
 #define ISR_WRAPPER NULL
 #endif
 
+typedef void (* ISR)(const void *);
 """
 
 def write_source_file(fp, vt, swt, intlist, syms):
@@ -145,7 +148,7 @@ def write_source_file(fp, vt, swt, intlist, syms):
     nv = intlist["num_vectors"]
 
     if vt:
-        fp.write("u32_t __irq_vector_table _irq_vector_table[%d] = {\n" % nv)
+        fp.write("uintptr_t __irq_vector_table _irq_vector_table[%d] = {\n" % nv)
         for i in range(nv):
             fp.write("\t{},\n".format(vt[i]))
         fp.write("};\n")
@@ -161,7 +164,7 @@ def write_source_file(fp, vt, swt, intlist, syms):
 
     for i in range(nv):
         param, func = swt[i]
-        if type(func) is int:
+        if isinstance(func, int):
             func_as_string = "{0:#x}".format(func)
         else:
             func_as_string = func
@@ -173,7 +176,7 @@ def write_source_file(fp, vt, swt, intlist, syms):
             fp.write("\t/* Level 3 interrupts start here (offset: {}) */\n".
                      format(level3_offset))
 
-        fp.write("\t{{(void *){0:#x}, (void *){1}}},\n".format(param, func_as_string))
+        fp.write("\t{{(const void *){0:#x}, (ISR){1}}},\n".format(param, func_as_string))
     fp.write("};\n")
 
 def get_symbols(obj):
@@ -220,10 +223,12 @@ def main():
 
                 debug('3rd level offsets: {}'.format(list_3rd_lvl_offsets))
 
-    intlist = read_intlist(args.intlist)
+    intlist = read_intlist(args.intlist, syms)
     nvec = intlist["num_vectors"]
     offset = intlist["offset"]
-    prefix = endian_prefix()
+
+    if nvec > pow(2, 15):
+        raise ValueError('nvec is too large, check endianness.')
 
     spurious_handler = "&z_irq_spurious"
     sw_irq_handler   = "ISR_WRAPPER"
@@ -250,8 +255,8 @@ def main():
         swt = None
 
     for irq, flags, func, param in intlist["interrupts"]:
-        if (flags & ISR_FLAG_DIRECT):
-            if (param != 0):
+        if flags & ISR_FLAG_DIRECT:
+            if param != 0:
                 error("Direct irq %d declared, but has non-NULL parameter"
                         % irq)
             vt[irq - offset] = func
@@ -298,7 +303,10 @@ def main():
                     table_index = irq1 - offset
 
             if swt[table_index] != (0, spurious_handler):
-                error("multiple registrations at table_index %d for irq %d (0x%x)" % (table_index, irq, irq))
+                error(f"multiple registrations at table_index {table_index} for irq {irq} (0x{irq:x})"
+                      + f"\nExisting handler 0x{swt[table_index][1]:x}, new handler 0x{func:x}"
+                      + "\nHas IRQ_CONNECT or IRQ_DIRECT_CONNECT accidentally been invoked on the same irq multiple times?"
+                )
 
             swt[table_index] = (param, func)
 
@@ -307,4 +315,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

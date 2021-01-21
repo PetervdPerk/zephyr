@@ -9,7 +9,7 @@
 #include <string.h>
 #include <shell/shell.h>
 #include <init.h>
-#include <fs.h>
+#include <fs/fs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -27,16 +27,16 @@ static struct fs_mount_t fatfs_mnt = {
 	.fs_data = &fat_fs,
 };
 #endif
-/* NFFS */
-#ifdef CONFIG_FILE_SYSTEM_NFFS
-#include <nffs/nffs.h>
-#define NFFS_MNTP       "/nffs"
-/* NFFS work area strcut */
-static struct nffs_flash_desc flash_desc;
-/* mounting info */
-static struct fs_mount_t nffs_mnt = {
-	.type = FS_NFFS,
-	.fs_data = &flash_desc,
+/* LITTLEFS */
+#ifdef CONFIG_FILE_SYSTEM_LITTLEFS
+#include <fs/littlefs.h>
+#include <storage/flash_map.h>
+
+FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(lfs_data);
+static struct fs_mount_t littlefs_mnt = {
+	.type = FS_LITTLEFS,
+	.fs_data = &lfs_data,
+	.storage_dev = (void *)FLASH_AREA_ID(storage),
 };
 #endif
 
@@ -48,17 +48,35 @@ static struct fs_mount_t nffs_mnt = {
 
 #define SHELL_FS    "fs"
 
+/* Maintenance guarantees this begins with '/' and is NUL-terminated. */
 static char cwd[MAX_PATH_LEN] = "/";
+
 static void create_abs_path(const char *name, char *path, size_t len)
 {
 	if (name[0] == '/') {
-		strncpy(path, name, len - 1);
+		strncpy(path, name, len);
 		path[len - 1] = '\0';
 	} else {
-		if (strcmp(cwd, "/") == 0) {
-			snprintf(path, len, "/%s", name);
+		if (cwd[1] == '\0') {
+			__ASSERT_NO_MSG(len >= 2);
+			*path++ = '/';
+			--len;
+
+			strncpy(path, name, len);
+			path[len - 1] = '\0';
 		} else {
-			snprintf(path, len, "%s/%s", cwd, name);
+			strncpy(path, cwd, len);
+			path[len - 1] = '\0';
+
+			size_t plen = strlen(path);
+
+			if (plen < len) {
+				path += plen;
+				*path++ = '/';
+				len -= plen + 1U;
+				strncpy(path, name, len);
+				path[len - 1] = '\0';
+			}
 		}
 	}
 }
@@ -100,7 +118,8 @@ static int cmd_cd(const struct shell *shell, size_t argc, char **argv)
 		return -ENOEXEC;
 	}
 
-	strcpy(cwd, path);
+	strncpy(cwd, path, sizeof(cwd));
+	cwd[sizeof(cwd) - 1] = '\0';
 
 	return 0;
 }
@@ -112,7 +131,8 @@ static int cmd_ls(const struct shell *shell, size_t argc, char **argv)
 	int err;
 
 	if (argc < 2) {
-		strcpy(path, cwd);
+		strncpy(path, cwd, sizeof(path));
+		path[sizeof(path) - 1] = '\0';
 	} else {
 		create_abs_path(argv[1], path, sizeof(path));
 	}
@@ -160,16 +180,7 @@ static int cmd_trunc(const struct shell *shell, size_t argc, char **argv)
 	int length;
 	int err;
 
-	if (argv[1][0] == '/') {
-		strncpy(path, argv[1], sizeof(path) - 1);
-		path[MAX_PATH_LEN - 1] = '\0';
-	} else {
-		if (strcmp(cwd, "/") == 0) {
-			snprintf(path, sizeof(path), "/%s", argv[1]);
-		} else {
-			snprintf(path, sizeof(path), "%s/%s", cwd, argv[1]);
-		}
-	}
+	create_abs_path(argv[1], path, sizeof(path));
 
 	if (argc > 2) {
 		length = strtol(argv[2], NULL, 0);
@@ -177,7 +188,7 @@ static int cmd_trunc(const struct shell *shell, size_t argc, char **argv)
 		length = 0;
 	}
 
-	err = fs_open(&file, path);
+	err = fs_open(&file, path, FS_O_CREATE | FS_O_RDWR);
 	if (err) {
 		shell_error(shell, "Failed to open %s (%d)", path, err);
 		return -ENOEXEC;;
@@ -266,7 +277,7 @@ static int cmd_read(const struct shell *shell, size_t argc, char **argv)
 
 	shell_print(shell, "File size: %zd", dirent.size);
 
-	err = fs_open(&file, path);
+	err = fs_open(&file, path, FS_O_CREATE | FS_O_RDWR);
 	if (err) {
 		shell_error(shell, "Failed to open %s (%d)", path, err);
 		return -ENOEXEC;
@@ -284,7 +295,7 @@ static int cmd_read(const struct shell *shell, size_t argc, char **argv)
 
 	while (count > 0) {
 		ssize_t read;
-		u8_t buf[16];
+		uint8_t buf[16];
 		int i;
 
 		read = fs_read(&file, buf, MIN(count, sizeof(buf)));
@@ -319,11 +330,32 @@ static int cmd_read(const struct shell *shell, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_statvfs(const struct shell *shell, size_t argc, char **argv)
+{
+	int err;
+	char path[MAX_PATH_LEN];
+	struct fs_statvfs stat;
+
+	create_abs_path(argv[1], path, sizeof(path));
+
+	err = fs_statvfs(path, &stat);
+	if (err < 0) {
+		shell_error(shell, "Failed to statvfs %s (%d)", path, err);
+		return -ENOEXEC;
+	}
+
+	shell_fprintf(shell, SHELL_NORMAL,
+		      "bsize %lu, frsize %lu, blocks %lu, bfree %lu\n",
+		      stat.f_bsize, stat.f_frsize, stat.f_blocks, stat.f_bfree);
+
+	return 0;
+}
+
 static int cmd_write(const struct shell *shell, size_t argc, char **argv)
 {
 	char path[MAX_PATH_LEN];
-	u8_t buf[BUF_CNT];
-	u8_t buf_len;
+	uint8_t buf[BUF_CNT];
+	uint8_t buf_len;
 	int arg_offset;
 	struct fs_file_t file;
 	off_t offset = -1;
@@ -344,7 +376,7 @@ static int cmd_write(const struct shell *shell, size_t argc, char **argv)
 		arg_offset = 2;
 	}
 
-	err = fs_open(&file, path);
+	err = fs_open(&file, path, FS_O_CREATE | FS_O_RDWR);
 	if (err) {
 		shell_error(shell, "Failed to open %s (%d)", path, err);
 		return -ENOEXEC;
@@ -383,15 +415,15 @@ static int cmd_write(const struct shell *shell, size_t argc, char **argv)
 	return 0;
 }
 
-#if defined(CONFIG_FILE_SYSTEM_NFFS) || defined(CONFIG_FAT_FILESYSTEM_ELM)
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)		\
+	|| defined(CONFIG_FILE_SYSTEM_LITTLEFS)
 static char *mntpt_prepare(char *mntpt)
 {
 	char *cpy_mntpt;
 
 	cpy_mntpt = k_malloc(strlen(mntpt) + 1);
 	if (cpy_mntpt) {
-		((u8_t *)mntpt)[strlen(mntpt)] = '\0';
-		memcpy(cpy_mntpt, mntpt, strlen(mntpt));
+		strcpy(cpy_mntpt, mntpt);
 	}
 	return cpy_mntpt;
 }
@@ -425,43 +457,36 @@ static int cmd_mount_fat(const struct shell *shell, size_t argc, char **argv)
 }
 #endif
 
-#if defined(CONFIG_FILE_SYSTEM_NFFS)
-static int cmd_mount_nffs(const struct shell *shell, size_t argc, char **argv)
+#if defined(CONFIG_FILE_SYSTEM_LITTLEFS)
+
+static int cmd_mount_littlefs(const struct shell *shell, size_t argc, char **argv)
 {
-	struct device *flash_dev;
-	char *mntpt;
-	int res;
+	if (littlefs_mnt.mnt_point != NULL) {
+		return -EBUSY;
+	}
 
-	mntpt = mntpt_prepare(argv[1]);
+	char *mntpt = mntpt_prepare(argv[1]);
+
 	if (!mntpt) {
-		shell_error(shell,
-				"Failed to allocate  buffer for mount point");
+		shell_error(shell, "Failed to allocate mount point");
+		return -ENOEXEC; /* ?!? */
+	}
+
+	littlefs_mnt.mnt_point = mntpt;
+
+	int rc = fs_mount(&littlefs_mnt);
+
+	if (rc != 0) {
+		shell_error(shell, "Error mounting %u as littlefs: %d", rc);
 		return -ENOEXEC;
 	}
 
-	nffs_mnt.mnt_point = (const char *)mntpt;
-	flash_dev = device_get_binding(CONFIG_FS_NFFS_FLASH_DEV_NAME);
-	if (!flash_dev) {
-		shell_error(shell,
-			"Error in device_get_binding, while mounting nffs fs");
-		return -ENOEXEC;
-	}
-
-	nffs_mnt.storage_dev = flash_dev;
-	res = fs_mount(&nffs_mnt);
-	if (res != 0) {
-		shell_error(shell,
-			      "Error mounting fat fs.Error Code [%d]", res);
-		return -ENOEXEC;
-	}
-
-	shell_print(shell, "Successfully mounted fs:%s", nffs_mnt.mnt_point);
-
-	return 0;
+	return rc;
 }
 #endif
 
-#if defined(CONFIG_FILE_SYSTEM_NFFS) || defined(CONFIG_FAT_FILESYSTEM_ELM)
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)		\
+	|| defined(CONFIG_FILE_SYSTEM_LITTLEFS)
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_fs_mount,
 #if defined(CONFIG_FAT_FILESYSTEM_ELM)
 	SHELL_CMD_ARG(fat, NULL,
@@ -469,10 +494,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_fs_mount,
 		      cmd_mount_fat, 2, 0),
 #endif
 
-#if defined(CONFIG_FILE_SYSTEM_NFFS)
-	SHELL_CMD_ARG(nffs, NULL,
-		      "Mount nffs. fs mount nffs <mount-point>",
-		      cmd_mount_nffs, 2, 0),
+#if defined(CONFIG_FILE_SYSTEM_LITTLEFS)
+	SHELL_CMD_ARG(littlefs, NULL,
+		      "Mount littlefs. fs mount littlefs <mount-point>",
+		      cmd_mount_littlefs, 2, 0),
 #endif
 
 	SHELL_SUBCMD_SET_END
@@ -483,13 +508,15 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_fs,
 	SHELL_CMD(cd, NULL, "Change working directory", cmd_cd),
 	SHELL_CMD(ls, NULL, "List files in current directory", cmd_ls),
 	SHELL_CMD_ARG(mkdir, NULL, "Create directory", cmd_mkdir, 2, 0),
-#if defined(CONFIG_FILE_SYSTEM_NFFS) || defined(CONFIG_FAT_FILESYSTEM_ELM)
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)		\
+	|| defined(CONFIG_FILE_SYSTEM_LITTLEFS)
 	SHELL_CMD(mount, &sub_fs_mount,
 		  "<Mount fs, syntax:- fs mount <fs type> <mount-point>", NULL),
 #endif
 	SHELL_CMD(pwd, NULL, "Print current working directory", cmd_pwd),
 	SHELL_CMD_ARG(read, NULL, "Read from file", cmd_read, 2, 255),
 	SHELL_CMD_ARG(rm, NULL, "Remove file", cmd_rm, 2, 0),
+	SHELL_CMD_ARG(statvfs, NULL, "Show file system state", cmd_statvfs, 2, 0),
 	SHELL_CMD_ARG(trunc, NULL, "Truncate file", cmd_trunc, 2, 255),
 	SHELL_CMD_ARG(write, NULL, "Write file", cmd_write, 3, 255),
 	SHELL_SUBCMD_SET_END

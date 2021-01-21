@@ -1,11 +1,8 @@
-#
-# Kconfig - Apollo Lake SoC configuration options
-#
+# Apollo Lake SoC configuration options
+
 # Copyright (c) 2018-2019 Intel Corporation
 # Copyright (c) 2014-2015 Wind River Systems, Inc.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if SOC_APOLLO_LAKE
 
@@ -13,79 +10,54 @@ config SOC
 	default "apollo_lake"
 
 config SYS_CLOCK_HW_CYCLES_PER_SEC
-	default 150000000 if LOAPIC_TIMER
-	default 25000000  if HPET_TIMER
+	default 19200000
+
+config HPET_TIMER
+	default y
+
+config APIC_TIMER
+	default y if !HPET_TIMER
+
+config PCIE_MMIO_CFG
+	default y
+
+if APIC_TIMER
+
+config APIC_TIMER_IRQ
+	default 24
+
+config APIC_TIMER_TSC
+	default y
+
+if APIC_TIMER_TSC
+
+config APIC_TIMER_TSC_M
+	default 3
+
+config APIC_TIMER_TSC_N
+	default 249
+
+endif # APIC_TIMER_TSC
+
+endif # APIC_TIMER
 
 config CLFLUSH_DETECT
-	default y if CACHE_FLUSHING
+	default y if CACHE_MANAGEMENT
 
-if UART_NS16550
+config X86_DYNAMIC_IRQ_STUBS
+	default 16
+	depends on DYNAMIC_INTERRUPTS
 
-config UART_NS16550_PCI
-	default y if PCI
-
-config UART_NS16550_PORT_0
+config I2C_DW
 	default y
+	depends on I2C
 
-if UART_NS16550_PORT_0
-
-config UART_NS16550_PORT_0_OPTIONS
-	default 0
-
-config UART_NS16550_PORT_0_PCI
-	default y if PCI
-
-endif # UART_NS16550_PORT_0
-
-config UART_NS16550_PORT_1
-	default y
-
-if UART_NS16550_PORT_1
-
-config UART_NS16550_PORT_1_OPTIONS
-	default 0
-
-config UART_NS16550_PORT_1_PCI
-	default y if PCI
-
-endif # UART_NS16550_PORT_1
-
-if UART_NS16550_PORT_2
-
-config UART_NS16550_PORT_2_OPTIONS
-	default 0
-
-config UART_NS16550_PORT_2_PCI
-	default y if PCI
-
-endif # UART_NS16550_PORT_2
-
-if UART_NS16550_PORT_3
-
-config UART_NS16550_PORT_3_OPTIONS
-	default 0
-
-config UART_NS16550_PORT_3_PCI
-	default y if PCI
-
-endif # UART_NS16550_PORT_3
-
-endif # UART_NS16550
-
-if GPIO
+config I2C_DW_MAX_INSTANCES
+	default 8
+	depends on I2C_DW
 
 config GPIO_INTEL_APL
 	default y
-
-config SHARED_IRQ
-	default y if GPIO_INTEL_APL
-
-config SHARED_IRQ_0
-	default y if SHARED_IRQ
-
-config SHARED_IRQ_NUM_CLIENTS
-	default 10 if SHARED_IRQ
-
-endif # GPIO
+	depends on GPIO
 
 endif # SOC_APOLLO_LAKE

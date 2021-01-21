@@ -11,7 +11,7 @@ LOG_MODULE_DECLARE(net_zperf_sample, LOG_LEVEL_DBG);
 #include <toolchain.h>
 
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 #include <net/net_core.h>
 #include <net/net_pkt.h>
@@ -53,7 +53,7 @@ static inline void set_dst_addr(const struct shell *shell,
 
 static inline void build_reply(struct zperf_udp_datagram *hdr,
 			       struct zperf_server_hdr *stat,
-			       u8_t *buf)
+			       uint8_t *buf)
 {
 	int pos = 0;
 	struct zperf_server_hdr *stat_hdr;
@@ -87,7 +87,7 @@ static int zperf_receiver_send_stat(const struct shell *shell,
 				    struct zperf_udp_datagram *hdr,
 				    struct zperf_server_hdr *stat)
 {
-	u8_t reply[BUF_SIZE];
+	uint8_t reply[BUF_SIZE];
 	struct sockaddr dst_addr;
 	int ret;
 
@@ -99,11 +99,11 @@ static int zperf_receiver_send_stat(const struct shell *shell,
 
 	build_reply(hdr, stat, reply);
 
-	ret = net_context_sendto_new(context, reply, BUF_SIZE, &dst_addr,
-				     net_pkt_family(pkt) == AF_INET6 ?
-				     sizeof(struct sockaddr_in6) :
-				     sizeof(struct sockaddr_in),
-				     NULL, 0, NULL, NULL);
+	ret = net_context_sendto(context, reply, BUF_SIZE, &dst_addr,
+				 net_pkt_family(pkt) == AF_INET6 ?
+				 sizeof(struct sockaddr_in6) :
+				 sizeof(struct sockaddr_in),
+				 NULL, K_NO_WAIT, NULL);
 	if (ret < 0) {
 		shell_fprintf(shell, SHELL_WARNING,
 			      " Cannot send data to peer (%d)", ret);
@@ -124,22 +124,22 @@ static void udp_received(struct net_context *context,
 	const struct shell *shell = user_data;
 	struct zperf_udp_datagram *hdr;
 	struct session *session;
-	s32_t transit_time;
-	u32_t time;
-	s32_t id;
+	int32_t transit_time;
+	int64_t time;
+	int32_t id;
 
 	if (!pkt) {
 		return;
 	}
 
-	hdr = (struct zperf_udp_datagram *)net_pkt_get_data_new(pkt, &zperf);
+	hdr = (struct zperf_udp_datagram *)net_pkt_get_data(pkt, &zperf);
 	if (!hdr) {
 		shell_fprintf(shell, SHELL_WARNING,
 			      "Short iperf packet!\n");
 		goto out;
 	}
 
-	time = k_cycle_get_32();
+	time = k_uptime_ticks();
 
 	session = get_session(pkt, ip_hdr, proto_hdr, SESSION_UDP);
 	if (!session) {
@@ -175,22 +175,23 @@ static void udp_received(struct net_context *context,
 		break;
 	case STATE_ONGOING:
 		if (id < 0) { /* Negative id means session end. */
-			u32_t rate_in_kbps;
-			u32_t duration;
+			uint32_t rate_in_kbps;
+			uint32_t duration;
 
 			shell_fprintf(shell, SHELL_NORMAL, "End of session!\n");
 
-			duration = HW_CYCLES_TO_USEC(
-				time_delta(session->start_time, time));
+			duration = k_ticks_to_us_ceil32(time -
+							session->start_time);
+
 			/* Update state machine */
 			session->state = STATE_COMPLETED;
 
 			/* Compute baud rate */
-			if (duration != 0) {
-				rate_in_kbps = (u32_t)
-					(((u64_t)session->length * (u64_t)8 *
-					  (u64_t)USEC_PER_SEC) /
-					 ((u64_t)duration * 1024));
+			if (duration != 0U) {
+				rate_in_kbps = (uint32_t)
+					((session->length * 8ULL *
+					  (uint64_t)USEC_PER_SEC) /
+					 ((uint64_t)duration * 1024ULL));
 			} else {
 				rate_in_kbps = 0U;
 			}
@@ -246,12 +247,12 @@ static void udp_received(struct net_context *context,
 			session->length += net_pkt_remaining_data(pkt);
 
 			/* Compute jitter */
-			transit_time = time_delta(HW_CYCLES_TO_USEC(time),
-						  ntohl(hdr->tv_sec) *
-						  USEC_PER_SEC +
-						  ntohl(hdr->tv_usec));
+			transit_time = time_delta(
+				k_ticks_to_us_ceil32(time),
+				ntohl(hdr->tv_sec) * USEC_PER_SEC +
+				ntohl(hdr->tv_usec));
 			if (session->last_transit_time != 0) {
-				s32_t delta_transit = transit_time -
+				int32_t delta_transit = transit_time -
 					session->last_transit_time;
 
 				delta_transit =
@@ -318,9 +319,10 @@ void zperf_udp_receiver_init(const struct shell *shell, int port)
 			if (ret < 0) {
 				shell_fprintf(shell, SHELL_WARNING,
 					      "Unable to set IPv4\n");
-				return;
+				goto use_existing_ipv4;
 			}
 		} else {
+		use_existing_ipv4:
 			/* Use existing IP */
 			in4_addr = zperf_get_default_if_in4_addr();
 			if (!in4_addr) {
@@ -368,9 +370,10 @@ void zperf_udp_receiver_init(const struct shell *shell, int port)
 			if (ret < 0) {
 				shell_fprintf(shell, SHELL_WARNING,
 					      "Unable to set IPv6\n");
-				return;
+				goto use_existing_ipv6;
 			}
 		} else {
+		use_existing_ipv6:
 			/* Use existing IP */
 			in6_addr = zperf_get_default_if_in6_addr();
 			if (!in6_addr) {

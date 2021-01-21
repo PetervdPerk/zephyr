@@ -47,79 +47,27 @@ LOG_MODULE_REGISTER(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
  */
 #define MAX_REACHABLE_TIME 3600000
 
-/* IPv6 wildcard and loopback address defined by RFC2553 */
-const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
-const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
-
-const struct in6_addr *net_ipv6_unspecified_address(void)
-{
-	return &in6addr_any;
-}
-
-struct net_pkt *net_ipv6_create(struct net_pkt *pkt,
-				const struct in6_addr *src,
-				const struct in6_addr *dst,
-				struct net_if *iface,
-				u8_t next_header_proto)
-{
-	struct net_buf *header;
-
-	header = net_pkt_get_frag(pkt, NET_BUF_TIMEOUT);
-	if (!header) {
-		return NULL;
-	}
-
-	net_pkt_frag_insert(pkt, header);
-
-	NET_IPV6_HDR(pkt)->vtc = 0x60;
-	NET_IPV6_HDR(pkt)->tcflow = 0;
-	NET_IPV6_HDR(pkt)->flow = 0;
-
-	NET_IPV6_HDR(pkt)->nexthdr = 0;
-
-	/* User can tweak the default hop limit if needed */
-	NET_IPV6_HDR(pkt)->hop_limit = net_pkt_ipv6_hop_limit(pkt);
-	if (NET_IPV6_HDR(pkt)->hop_limit == 0) {
-		NET_IPV6_HDR(pkt)->hop_limit =
-					net_if_ipv6_get_hop_limit(iface);
-	}
-
-	net_ipaddr_copy(&NET_IPV6_HDR(pkt)->dst, dst);
-	net_ipaddr_copy(&NET_IPV6_HDR(pkt)->src, src);
-
-	net_pkt_set_ipv6_ext_len(pkt, 0);
-	NET_IPV6_HDR(pkt)->nexthdr = next_header_proto;
-
-	net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv6_hdr));
-	net_pkt_set_family(pkt, AF_INET6);
-
-	net_buf_add(header, sizeof(struct net_ipv6_hdr));
-
-	return pkt;
-}
-
-int net_ipv6_create_new(struct net_pkt *pkt,
-			const struct in6_addr *src,
-			const struct in6_addr *dst)
+int net_ipv6_create(struct net_pkt *pkt,
+		    const struct in6_addr *src,
+		    const struct in6_addr *dst)
 {
 	NET_PKT_DATA_ACCESS_CONTIGUOUS_DEFINE(ipv6_access, struct net_ipv6_hdr);
 	struct net_ipv6_hdr *ipv6_hdr;
 
-	ipv6_hdr = (struct net_ipv6_hdr *)net_pkt_get_data_new(pkt,
-							       &ipv6_access);
+	ipv6_hdr = (struct net_ipv6_hdr *)net_pkt_get_data(pkt, &ipv6_access);
 	if (!ipv6_hdr) {
 		return -ENOBUFS;
 	}
 
 	ipv6_hdr->vtc     = 0x60;
-	ipv6_hdr->tcflow  = 0;
-	ipv6_hdr->flow    = 0;
-	ipv6_hdr->len     = 0;
-	ipv6_hdr->nexthdr = 0;
+	ipv6_hdr->tcflow  = 0U;
+	ipv6_hdr->flow    = 0U;
+	ipv6_hdr->len     = 0U;
+	ipv6_hdr->nexthdr = 0U;
 
 	/* User can tweak the default hop limit if needed */
 	ipv6_hdr->hop_limit = net_pkt_ipv6_hop_limit(pkt);
-	if (ipv6_hdr->hop_limit == 0) {
+	if (ipv6_hdr->hop_limit == 0U) {
 		ipv6_hdr->hop_limit =
 			net_if_ipv6_get_hop_limit(net_pkt_iface(pkt));
 	}
@@ -133,15 +81,14 @@ int net_ipv6_create_new(struct net_pkt *pkt,
 	return net_pkt_set_data(pkt, &ipv6_access);
 }
 
-int net_ipv6_finalize(struct net_pkt *pkt, u8_t next_header_proto)
+int net_ipv6_finalize(struct net_pkt *pkt, uint8_t next_header_proto)
 {
 	NET_PKT_DATA_ACCESS_CONTIGUOUS_DEFINE(ipv6_access, struct net_ipv6_hdr);
 	struct net_ipv6_hdr *ipv6_hdr;
 
 	net_pkt_set_overwrite(pkt, true);
 
-	ipv6_hdr = (struct net_ipv6_hdr *)net_pkt_get_data_new(pkt,
-							       &ipv6_access);
+	ipv6_hdr = (struct net_ipv6_hdr *)net_pkt_get_data(pkt, &ipv6_access);
 	if (!ipv6_hdr) {
 		return -ENOBUFS;
 	}
@@ -149,7 +96,7 @@ int net_ipv6_finalize(struct net_pkt *pkt, u8_t next_header_proto)
 	ipv6_hdr->len = htons(net_pkt_get_len(pkt) -
 			      sizeof(struct net_ipv6_hdr));
 
-	if (net_pkt_ipv6_next_hdr(pkt) != 255) {
+	if (net_pkt_ipv6_next_hdr(pkt) != 255U) {
 		ipv6_hdr->nexthdr = net_pkt_ipv6_next_hdr(pkt);
 	} else {
 		ipv6_hdr->nexthdr = next_header_proto;
@@ -157,22 +104,19 @@ int net_ipv6_finalize(struct net_pkt *pkt, u8_t next_header_proto)
 
 	net_pkt_set_data(pkt, &ipv6_access);
 
-	if (net_pkt_ipv6_next_hdr(pkt) != 255 &&
+	if (net_pkt_ipv6_next_hdr(pkt) != 255U &&
 	    net_pkt_skip(pkt, net_pkt_ipv6_ext_len(pkt))) {
 		return -ENOBUFS;
 	}
 
-	if (net_if_need_calc_tx_checksum(net_pkt_iface(pkt)) ||
-	    next_header_proto == IPPROTO_ICMPV6) {
-		if (IS_ENABLED(CONFIG_NET_UDP) &&
-		    next_header_proto == IPPROTO_UDP) {
-			return net_udp_finalize(pkt);
-		} else if (IS_ENABLED(CONFIG_NET_TCP) &&
-			   next_header_proto == IPPROTO_TCP) {
-			return net_tcp_finalize(pkt);
-		} else if (next_header_proto == IPPROTO_ICMPV6) {
-			return net_icmpv6_finalize(pkt);
-		}
+	if (IS_ENABLED(CONFIG_NET_UDP) &&
+	    next_header_proto == IPPROTO_UDP) {
+		return net_udp_finalize(pkt);
+	} else if (IS_ENABLED(CONFIG_NET_TCP) &&
+		   next_header_proto == IPPROTO_TCP) {
+		return net_tcp_finalize(pkt);
+	} else if (next_header_proto == IPPROTO_ICMPV6) {
+		return net_icmpv6_finalize(pkt);
 	}
 
 	return 0;
@@ -180,8 +124,8 @@ int net_ipv6_finalize(struct net_pkt *pkt, u8_t next_header_proto)
 
 static inline bool ipv6_drop_on_unknown_option(struct net_pkt *pkt,
 					       struct net_ipv6_hdr *hdr,
-					       u8_t opt_type,
-					       u16_t length)
+					       uint8_t opt_type,
+					       uint16_t length)
 {
 	/* RFC 2460 chapter 4.2 tells how to handle the unknown
 	 * options by the two highest order bits of the option:
@@ -210,11 +154,11 @@ static inline bool ipv6_drop_on_unknown_option(struct net_pkt *pkt,
 			break;
 		}
 
-		/* passthrough */
+		__fallthrough;
 	case 0x80:
 		net_icmpv6_send_error(pkt, NET_ICMPV6_PARAM_PROBLEM,
 				      NET_ICMPV6_PARAM_PROB_OPTION,
-				      (u32_t)length);
+				      (uint32_t)length);
 		break;
 	}
 
@@ -223,34 +167,38 @@ static inline bool ipv6_drop_on_unknown_option(struct net_pkt *pkt,
 
 static inline int ipv6_handle_ext_hdr_options(struct net_pkt *pkt,
 					      struct net_ipv6_hdr *hdr,
-					      u16_t pkt_len)
+					      uint16_t pkt_len)
 {
-	u16_t exthdr_len = 0U;
-	u16_t length = 0U;
+	uint16_t exthdr_len = 0U;
+	uint16_t length = 0U;
 
-	if (net_pkt_read_u8_new(pkt, (u8_t *)&exthdr_len)) {
-		return -ENOBUFS;
+	{
+		uint8_t val = 0U;
+
+		if (net_pkt_read_u8(pkt, &val)) {
+			return -ENOBUFS;
+		}
+		exthdr_len = val * 8U + 8;
 	}
 
-	exthdr_len = exthdr_len * 8 + 8;
 	if (exthdr_len > pkt_len) {
 		NET_DBG("Corrupted packet, extension header %d too long "
 			"(max %d bytes)", exthdr_len, pkt_len);
 		return -EINVAL;
 	}
 
-	length += 2;
+	length += 2U;
 
 	while (length < exthdr_len) {
-		u8_t opt_type, opt_len;
+		uint8_t opt_type, opt_len;
 
 		/* Each extension option has type and length */
-		if (net_pkt_read_u8_new(pkt, &opt_type)) {
+		if (net_pkt_read_u8(pkt, &opt_type)) {
 			return -ENOBUFS;
 		}
 
 		if (opt_type != NET_IPV6_EXT_HDR_OPT_PAD1) {
-			if (net_pkt_read_u8_new(pkt, &opt_len)) {
+			if (net_pkt_read_u8(pkt, &opt_len)) {
 				return -ENOBUFS;
 			}
 		}
@@ -265,6 +213,16 @@ static inline int ipv6_handle_ext_hdr_options(struct net_pkt *pkt,
 
 			break;
 		default:
+			/* Make sure that the option length is not too large.
+			 * The former 1 + 1 is the length of extension type +
+			 * length fields.
+			 * The latter 1 + 1 is the length of the sub-option
+			 * type and length fields.
+			 */
+			if (opt_len > (exthdr_len - (1 + 1 + 1 + 1))) {
+				return -EINVAL;
+			}
+
 			if (ipv6_drop_on_unknown_option(pkt, hdr,
 							opt_type, length)) {
 				return -ENOTSUP;
@@ -286,7 +244,7 @@ static inline int ipv6_handle_ext_hdr_options(struct net_pkt *pkt,
 #if defined(CONFIG_NET_ROUTE)
 static struct net_route_entry *add_route(struct net_if *iface,
 					 struct in6_addr *addr,
-					 u8_t prefix_len)
+					 uint8_t prefix_len)
 {
 	struct net_route_entry *route;
 
@@ -373,6 +331,20 @@ static enum net_verdict ipv6_route_packet(struct net_pkt *pkt,
 			return NET_OK;
 		}
 	} else {
+		struct net_if *iface = NULL;
+		int ret;
+
+		if (net_if_ipv6_addr_onlink(&iface, &hdr->dst)) {
+			ret = net_route_packet_if(pkt, iface);
+			if (ret < 0) {
+				NET_DBG("Cannot re-route pkt %p "
+					"at iface %p (%d)",
+					pkt, net_pkt_iface(pkt), ret);
+			} else {
+				return NET_OK;
+			}
+		}
+
 		NET_DBG("No route to %s pkt %p dropped",
 			log_strdup(net_sprint_ipv6_addr(&hdr->dst)), pkt);
 	}
@@ -394,24 +366,51 @@ static inline enum net_verdict ipv6_route_packet(struct net_pkt *pkt,
 
 #endif /* CONFIG_NET_ROUTE */
 
+
+static enum net_verdict ipv6_forward_mcast_packet(struct net_pkt *pkt,
+						 struct net_ipv6_hdr *hdr)
+{
+#if defined(CONFIG_NET_ROUTE_MCAST)
+	int routed;
+
+	/* check if routing loop could be created or if the destination is of
+	 * interface local scope or if from link local source
+	 */
+	if (net_ipv6_is_addr_mcast(&hdr->src)  ||
+	      net_ipv6_is_addr_mcast_iface(&hdr->dst) ||
+	       net_ipv6_is_ll_addr(&hdr->src)) {
+		return NET_CONTINUE;
+	}
+
+	routed = net_route_mcast_forward_packet(pkt, hdr);
+
+	if (routed < 0) {
+		return NET_DROP;
+	}
+#endif /*CONFIG_NET_ROUTE_MCAST*/
+	return NET_CONTINUE;
+}
+
 enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 {
 	NET_PKT_DATA_ACCESS_CONTIGUOUS_DEFINE(ipv6_access, struct net_ipv6_hdr);
 	NET_PKT_DATA_ACCESS_DEFINE(udp_access, struct net_udp_hdr);
 	NET_PKT_DATA_ACCESS_DEFINE(tcp_access, struct net_tcp_hdr);
+	struct net_if *pkt_iface = net_pkt_iface(pkt);
 	enum net_verdict verdict = NET_DROP;
 	int real_len = net_pkt_get_len(pkt);
-	u8_t ext_bitmap = 0U;
-	u16_t ext_len = 0U;
-	u8_t nexthdr, next_nexthdr;
+	uint8_t ext_bitmap = 0U;
+	uint16_t ext_len = 0U;
+	uint8_t nexthdr, next_nexthdr, prev_hdr_offset;
 	union net_proto_header proto_hdr;
 	struct net_ipv6_hdr *hdr;
+	struct net_if_mcast_addr *if_mcast_addr;
 	union net_ip_header ip;
 	int pkt_len;
 
-	net_stats_update_ipv6_recv(net_pkt_iface(pkt));
+	net_stats_update_ipv6_recv(pkt_iface);
 
-	hdr = (struct net_ipv6_hdr *)net_pkt_get_data_new(pkt, &ipv6_access);
+	hdr = (struct net_ipv6_hdr *)net_pkt_get_data(pkt, &ipv6_access);
 	if (!hdr) {
 		NET_DBG("DROP: no buffer");
 		goto drop;
@@ -429,6 +428,11 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 	NET_DBG("IPv6 packet len %d received from %s to %s", pkt_len,
 		log_strdup(net_sprint_ipv6_addr(&hdr->src)),
 		log_strdup(net_sprint_ipv6_addr(&hdr->dst)));
+
+	if (net_ipv6_is_addr_unspecified(&hdr->src)) {
+		NET_DBG("DROP: src addr is %s", "unspecified");
+		goto drop;
+	}
 
 	if (net_ipv6_is_addr_mcast(&hdr->src) ||
 	    net_ipv6_is_addr_mcast_scope(&hdr->dst, 0)) {
@@ -458,39 +462,77 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 	net_pkt_set_ipv6_ext_len(pkt, 0);
 	net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv6_hdr));
 	net_pkt_set_ipv6_hop_limit(pkt, NET_IPV6_HDR(pkt)->hop_limit);
+	net_pkt_set_family(pkt, PF_INET6);
 
-	if (!net_ipv6_is_my_addr(&hdr->dst) &&
-	    !net_ipv6_is_my_maddr(&hdr->dst) &&
-	    !net_ipv6_is_addr_mcast(&hdr->dst)) {
-		if (ipv6_route_packet(pkt, hdr) == NET_OK) {
-			return NET_OK;
+	if (IS_ENABLED(CONFIG_NET_ROUTE_MCAST) &&
+		net_ipv6_is_addr_mcast(&hdr->dst)) {
+		/* If the packet is a multicast packet and multicast routing
+		 * is activated, we give the packet to the routing engine.
+		 *
+		 * But we only drop the packet if an error occurs, otherwise
+		 * it might be eminent to respond on the packet on application
+		 * layer.
+		 */
+		if (ipv6_forward_mcast_packet(pkt, hdr) == NET_DROP) {
+			goto drop;
 		}
-
-		goto drop;
 	}
 
-	/* If we receive a packet with ll source address fe80: and destination
-	 * address is one of ours, and if the packet would cross interface
-	 * boundary, then drop the packet. RFC 4291 ch 2.5.6
-	 */
-	if (IS_ENABLED(CONFIG_NET_ROUTING) &&
-	    net_ipv6_is_ll_addr(&hdr->src) &&
-	    !net_ipv6_is_addr_mcast(&hdr->dst) &&
-	    !net_if_ipv6_addr_lookup_by_iface(net_pkt_iface(pkt),
-					      &hdr->dst)) {
-		ipv6_no_route_info(pkt, &hdr->src, &hdr->dst);
-		goto drop;
+	if (!net_ipv6_is_addr_mcast(&hdr->dst)) {
+		if (!net_ipv6_is_my_addr(&hdr->dst)) {
+			if (ipv6_route_packet(pkt, hdr) == NET_OK) {
+				return NET_OK;
+			}
+
+			goto drop;
+		}
+
+		/* If we receive a packet with ll source address fe80: and
+		 * destination address is one of ours, and if the packet would
+		 * cross interface boundary, then drop the packet.
+		 * RFC 4291 ch 2.5.6
+		 */
+		if (IS_ENABLED(CONFIG_NET_ROUTING) &&
+		    net_ipv6_is_ll_addr(&hdr->src) &&
+		    !net_if_ipv6_addr_lookup_by_iface(pkt_iface, &hdr->dst)) {
+			ipv6_no_route_info(pkt, &hdr->src, &hdr->dst);
+			goto drop;
+		}
+	}
+
+	if (net_ipv6_is_addr_mcast(&hdr->dst) &&
+	    !(net_ipv6_is_addr_mcast_iface(&hdr->dst) ||
+	      net_ipv6_is_addr_mcast_link_all_nodes(&hdr->dst))) {
+		/* If we receive a packet with a interface-local or
+		 * link-local all-nodes multicast destination address we
+		 * always have to pass it to the upper layer.
+		 *
+		 * For all other destination multicast addresses we have to
+		 * check if one of the joined multicast groups on the
+		 * originating interface of the packet matches. Otherwise the
+		 * packet will be dropped.
+		 * RFC4291 ch 2.7.1, ch 2.8
+		 */
+		if_mcast_addr = net_if_ipv6_maddr_lookup(&hdr->dst, &pkt_iface);
+
+		if (!if_mcast_addr ||
+		    !net_if_ipv6_maddr_is_joined(if_mcast_addr)) {
+			NET_DBG("DROP: packet for unjoined multicast address");
+			goto drop;
+		}
 	}
 
 	net_pkt_acknowledge_data(pkt, &ipv6_access);
 
 	nexthdr = hdr->nexthdr;
+	prev_hdr_offset = (uint8_t *)&hdr->nexthdr - (uint8_t *)hdr;
+
 	while (!net_ipv6_is_nexthdr_upper_layer(nexthdr)) {
 		int exthdr_len;
 
 		NET_DBG("IPv6 next header %d", nexthdr);
 
-		if (net_pkt_read_u8_new(pkt, &next_nexthdr)) {
+		if (net_pkt_read_u8(pkt, &next_nexthdr)) {
 			goto drop;
 		}
 
@@ -526,8 +568,11 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 
 		case NET_IPV6_NEXTHDR_FRAG:
 			if (IS_ENABLED(CONFIG_NET_IPV6_FRAGMENT)) {
+				net_pkt_set_ipv6_hdr_prev(pkt,
+							  prev_hdr_offset);
 				net_pkt_set_ipv6_fragment_start(
-					pkt, net_pkt_get_current_offset(pkt));
+					pkt,
+					net_pkt_get_current_offset(pkt) - 1);
 				return net_ipv6_handle_fragment_hdr(pkt, hdr,
 								    nexthdr);
 			}
@@ -556,7 +601,6 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 	}
 
 	net_pkt_set_ipv6_ext_len(pkt, ext_len);
-	net_pkt_set_family(pkt, PF_INET6);
 
 	switch (nexthdr) {
 	case IPPROTO_ICMPV6:
@@ -590,7 +634,7 @@ enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback)
 	}
 
 drop:
-	net_stats_update_ipv6_drop(net_pkt_iface(pkt));
+	net_stats_update_ipv6_drop(pkt_iface);
 	return NET_DROP;
 
 bad_hdr:
@@ -600,7 +644,7 @@ bad_hdr:
 			      net_pkt_get_current_offset(pkt) - 1);
 
 	NET_DBG("DROP: Unknown/wrong nexthdr type");
-	net_stats_update_ip_errors_protoerr(net_pkt_iface(pkt));
+	net_stats_update_ip_errors_protoerr(pkt_iface);
 
 	return NET_DROP;
 }

@@ -38,7 +38,7 @@
 
 /* Two threads at each priority (to test the case of waking up a
  * thread of equal priority).  But only one metairq, as it isn't
- * technically legal to have more than one at the smae priority.
+ * technically legal to have more than one at the same priority.
  */
 const enum { METAIRQ, COOP, PREEMPTIBLE } worker_priorities[] = {
 	METAIRQ,
@@ -48,11 +48,7 @@ const enum { METAIRQ, COOP, PREEMPTIBLE } worker_priorities[] = {
 
 #define NUM_THREADS ARRAY_SIZE(worker_priorities)
 
-#ifdef CONFIG_COVERAGE
-#define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACKSIZE)
-#else
-#define STACK_SIZE (384 + CONFIG_TEST_EXTRA_STACKSIZE)
-#endif
+#define STACK_SIZE (640 + CONFIG_TEST_EXTRA_STACKSIZE)
 
 k_tid_t last_thread;
 
@@ -72,21 +68,23 @@ struct k_sem worker_sems[NUM_THREADS];
 int target;
 
 /* Command to worker: use a sched_lock()? */
-int do_lock;
+volatile int do_lock;
 
 /* Command to worker: use irq_offload() to indirect the wakeup? */
-int do_irq;
+volatile int do_irq;
 
 /* Command to worker: sleep after wakeup? */
-int do_sleep;
+volatile int do_sleep;
 
 /* Command to worker: yield after wakeup? */
-int do_yield;
+volatile int do_yield;
 
 K_SEM_DEFINE(main_sem, 0, 1);
 
 void wakeup_src_thread(int id)
 {
+	volatile k_tid_t src_thread = &worker_threads[id];
+
 	zassert_true(k_current_get() == &manager_thread, "");
 
 	/* irq_offload() on ARM appears not to do what we want.  It
@@ -106,16 +104,15 @@ void wakeup_src_thread(int id)
 	for (int i = 0; i < NUM_THREADS; i++) {
 		k_tid_t th = &worker_threads[i];
 
-		zassert_true(th->base.thread_state & _THREAD_PENDING,
-			     "worker thread %d not pending?", i);
+		zassert_equal(strcmp(k_thread_state_str(th), "pending"),
+				0, "worker thread %d not pending?", i);
 	}
 
 	/* Wake the src worker up */
 	last_thread = NULL;
 	k_sem_give(&worker_sems[id]);
 
-	while (do_sleep
-	       && !(worker_threads[id].base.thread_state & _THREAD_PENDING)) {
+	while (do_sleep && !(src_thread->base.thread_state & _THREAD_PENDING)) {
 		/* spin, waiting on the sleep timeout */
 #if defined(CONFIG_ARCH_POSIX)
 		/**
@@ -165,7 +162,7 @@ void manager(void *p1, void *p2, void *p3)
 	k_sem_give(&main_sem);
 }
 
-void irq_waker(void *p)
+void irq_waker(const void *p)
 {
 	ARG_UNUSED(p);
 	k_sem_give(&worker_sems[target]);
@@ -240,7 +237,7 @@ void validate_wakeup(int src, int target, k_tid_t last_thread)
 
 void worker(void *p1, void *p2, void *p3)
 {
-	int id = (int)p1;
+	int id = POINTER_TO_INT(p1);
 	k_tid_t curr = &worker_threads[id], prev;
 
 	ARG_UNUSED(p2);
@@ -293,9 +290,9 @@ void worker(void *p1, void *p2, void *p3)
 		}
 
 		if (do_sleep) {
-			u64_t start = k_uptime_get();
+			uint64_t start = k_uptime_get();
 
-			k_sleep(1);
+			k_sleep(K_MSEC(1));
 
 			zassert_true(k_uptime_get() - start > 0,
 				     "didn't sleep");
@@ -333,13 +330,13 @@ void test_preempt(void)
 
 		k_thread_create(&worker_threads[i],
 				worker_stacks[i], STACK_SIZE,
-				worker, (void *)i, NULL, NULL,
-				priority, 0, 0);
+				worker, INT_TO_POINTER(i), NULL, NULL,
+				priority, 0, K_NO_WAIT);
 	}
 
 	k_thread_create(&manager_thread, manager_stack, STACK_SIZE,
 			manager, NULL, NULL, NULL,
-			K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+			K_LOWEST_APPLICATION_THREAD_PRIO, 0, K_NO_WAIT);
 
 	/* We don't control the priority of this thread so can't make
 	 * it part of the test.  Just get out of the way until the

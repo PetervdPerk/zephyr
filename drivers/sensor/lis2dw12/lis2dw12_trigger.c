@@ -8,93 +8,198 @@
  * https://www.st.com/resource/en/datasheet/lis2dw12.pdf
  */
 
+#define DT_DRV_COMPAT st_lis2dw12
+
 #include <kernel.h>
-#include <sensor.h>
-#include <gpio.h>
+#include <drivers/sensor.h>
+#include <drivers/gpio.h>
 #include <logging/log.h>
 
 #include "lis2dw12.h"
 
-#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-LOG_MODULE_DECLARE(LIS2DW12);
+LOG_MODULE_DECLARE(LIS2DW12, CONFIG_SENSOR_LOG_LEVEL);
 
 /**
  * lis2dw12_enable_int - enable selected int pin to generate interrupt
  */
-static int lis2dw12_enable_int(struct device *dev, int enable)
+static int lis2dw12_enable_int(const struct device *dev,
+			       enum sensor_trigger_type type, int enable)
 {
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
+	const struct lis2dw12_device_config *cfg = dev->config;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	lis2dw12_reg_t int_route;
 
-	/* set interrupt */
-	if (cfg->int_pin == 1)
-		return lis2dw12->hw_tf->update_reg(lis2dw12,
-			 LIS2DW12_CTRL4_ADDR,
-			 LIS2DW12_INT1_DRDY,
-			 enable);
+	if (cfg->int_pin == 1U) {
+		/* set interrupt for pin INT1 */
+		lis2dw12_pin_int1_route_get(lis2dw12->ctx,
+				&int_route.ctrl4_int1_pad_ctrl);
 
-	return lis2dw12->hw_tf->update_reg(lis2dw12,
-		 LIS2DW12_CTRL5_ADDR,
-		 LIS2DW12_INT2_DRDY,
-		 enable);
+		switch (type) {
+		case SENSOR_TRIG_DATA_READY:
+			int_route.ctrl4_int1_pad_ctrl.int1_drdy = enable;
+			break;
+#ifdef CONFIG_LIS2DW12_PULSE
+		case SENSOR_TRIG_TAP:
+			int_route.ctrl4_int1_pad_ctrl.int1_single_tap = enable;
+			break;
+		case SENSOR_TRIG_DOUBLE_TAP:
+			int_route.ctrl4_int1_pad_ctrl.int1_tap = enable;
+			break;
+#endif /* CONFIG_LIS2DW12_PULSE */
+		default:
+			LOG_ERR("Unsupported trigger interrupt route");
+			return -ENOTSUP;
+		}
+
+		return lis2dw12_pin_int1_route_set(lis2dw12->ctx,
+				&int_route.ctrl4_int1_pad_ctrl);
+	} else {
+		/* set interrupt for pin INT2 */
+		lis2dw12_pin_int2_route_get(lis2dw12->ctx,
+					    &int_route.ctrl5_int2_pad_ctrl);
+
+		switch (type) {
+		case SENSOR_TRIG_DATA_READY:
+			int_route.ctrl5_int2_pad_ctrl.int2_drdy = enable;
+			break;
+		default:
+			LOG_ERR("Unsupported trigger interrupt route");
+			return -ENOTSUP;
+		}
+
+		return lis2dw12_pin_int2_route_set(lis2dw12->ctx,
+				&int_route.ctrl5_int2_pad_ctrl);
+	}
 }
 
 /**
  * lis2dw12_trigger_set - link external trigger to event data ready
  */
-int lis2dw12_trigger_set(struct device *dev,
+int lis2dw12_trigger_set(const struct device *dev,
 			  const struct sensor_trigger *trig,
 			  sensor_trigger_handler_t handler)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	u8_t raw[6];
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	int16_t raw[3];
+	int state = (handler != NULL) ? PROPERTY_ENABLE : PROPERTY_DISABLE;
 
-	if (trig->chan == SENSOR_CHAN_ACCEL_XYZ) {
-		lis2dw12->handler_drdy = handler;
-		if (handler) {
+	switch (trig->type) {
+	case SENSOR_TRIG_DATA_READY:
+		lis2dw12->drdy_handler = handler;
+		if (state) {
 			/* dummy read: re-trigger interrupt */
-			lis2dw12->hw_tf->read_data(lis2dw12,
-					    LIS2DW12_OUT_X_L_ADDR, raw,
-					    sizeof(raw));
-			return lis2dw12_enable_int(dev, LIS2DW12_EN_BIT);
-		} else {
-			return lis2dw12_enable_int(dev, LIS2DW12_DIS_BIT);
+			lis2dw12_acceleration_raw_get(lis2dw12->ctx, raw);
 		}
+		return lis2dw12_enable_int(dev, SENSOR_TRIG_DATA_READY, state);
+		break;
+#ifdef CONFIG_LIS2DW12_PULSE
+	case SENSOR_TRIG_TAP:
+		lis2dw12->tap_handler = handler;
+		return lis2dw12_enable_int(dev, SENSOR_TRIG_TAP, state);
+		break;
+	case SENSOR_TRIG_DOUBLE_TAP:
+		lis2dw12->double_tap_handler = handler;
+		return lis2dw12_enable_int(dev, SENSOR_TRIG_DOUBLE_TAP, state);
+		break;
+#endif /* CONFIG_LIS2DW12_PULSE */
+	default:
+		LOG_ERR("Unsupported sensor trigger");
+		return -ENOTSUP;
+	}
+}
+
+static int lis2dw12_handle_drdy_int(const struct device *dev)
+{
+	struct lis2dw12_data *data = dev->data;
+
+	struct sensor_trigger drdy_trig = {
+		.type = SENSOR_TRIG_DATA_READY,
+		.chan = SENSOR_CHAN_ALL,
+	};
+
+	if (data->drdy_handler) {
+		data->drdy_handler(dev, &drdy_trig);
 	}
 
-	return -ENOTSUP;
+	return 0;
 }
+
+#ifdef CONFIG_LIS2DW12_PULSE
+static int lis2dw12_handle_single_tap_int(const struct device *dev)
+{
+	struct lis2dw12_data *data = dev->data;
+	sensor_trigger_handler_t handler = data->tap_handler;
+
+	struct sensor_trigger pulse_trig = {
+		.type = SENSOR_TRIG_TAP,
+		.chan = SENSOR_CHAN_ALL,
+	};
+
+	if (handler) {
+		handler(dev, &pulse_trig);
+	}
+
+	return 0;
+}
+
+static int lis2dw12_handle_double_tap_int(const struct device *dev)
+{
+	struct lis2dw12_data *data = dev->data;
+	sensor_trigger_handler_t handler = data->double_tap_handler;
+
+	struct sensor_trigger pulse_trig = {
+		.type = SENSOR_TRIG_DOUBLE_TAP,
+		.chan = SENSOR_CHAN_ALL,
+	};
+
+	if (handler) {
+		handler(dev, &pulse_trig);
+	}
+
+	return 0;
+}
+#endif /* CONFIG_LIS2DW12_PULSE */
 
 /**
  * lis2dw12_handle_interrupt - handle the drdy event
  * read data and call handler if registered any
  */
-static void lis2dw12_handle_interrupt(void *arg)
+static void lis2dw12_handle_interrupt(const struct device *dev)
 {
-	struct device *dev = arg;
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	struct sensor_trigger drdy_trigger = {
-		.type = SENSOR_TRIG_DATA_READY,
-	};
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
+	lis2dw12_all_sources_t sources;
 
-	if (lis2dw12->handler_drdy != NULL) {
-		lis2dw12->handler_drdy(dev, &drdy_trigger);
+	lis2dw12_all_sources_get(lis2dw12->ctx, &sources);
+
+	if (sources.status_dup.drdy) {
+		lis2dw12_handle_drdy_int(dev);
 	}
+#ifdef CONFIG_LIS2DW12_PULSE
+	if (sources.status_dup.single_tap) {
+		lis2dw12_handle_single_tap_int(dev);
+	}
+	if (sources.status_dup.double_tap) {
+		lis2dw12_handle_double_tap_int(dev);
+	}
+#endif /* CONFIG_LIS2DW12_PULSE */
 
-	gpio_pin_enable_callback(lis2dw12->gpio, cfg->int_gpio_pin);
+	gpio_pin_interrupt_configure(lis2dw12->gpio, cfg->int_gpio_pin,
+				     GPIO_INT_EDGE_TO_ACTIVE);
 }
 
-static void lis2dw12_gpio_callback(struct device *dev,
-				    struct gpio_callback *cb, u32_t pins)
+static void lis2dw12_gpio_callback(const struct device *dev,
+				    struct gpio_callback *cb, uint32_t pins)
 {
 	struct lis2dw12_data *lis2dw12 =
 		CONTAINER_OF(cb, struct lis2dw12_data, gpio_cb);
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
 
-	ARG_UNUSED(pins);
+	if ((pins & BIT(lis2dw12->gpio_pin)) == 0U) {
+		return;
+	}
 
-	gpio_pin_disable_callback(dev, cfg->int_gpio_pin);
+	gpio_pin_interrupt_configure(dev, lis2dw12->gpio_pin,
+				     GPIO_INT_DISABLE);
 
 #if defined(CONFIG_LIS2DW12_TRIGGER_OWN_THREAD)
 	k_sem_give(&lis2dw12->gpio_sem);
@@ -104,16 +209,11 @@ static void lis2dw12_gpio_callback(struct device *dev,
 }
 
 #ifdef CONFIG_LIS2DW12_TRIGGER_OWN_THREAD
-static void lis2dw12_thread(int dev_ptr, int unused)
+static void lis2dw12_thread(struct lis2dw12_data *lis2dw12)
 {
-	struct device *dev = INT_TO_POINTER(dev_ptr);
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-
-	ARG_UNUSED(unused);
-
 	while (1) {
 		k_sem_take(&lis2dw12->gpio_sem, K_FOREVER);
-		lis2dw12_handle_interrupt(dev);
+		lis2dw12_handle_interrupt(lis2dw12->dev);
 	}
 }
 #endif /* CONFIG_LIS2DW12_TRIGGER_OWN_THREAD */
@@ -128,10 +228,10 @@ static void lis2dw12_work_cb(struct k_work *work)
 }
 #endif /* CONFIG_LIS2DW12_TRIGGER_GLOBAL_THREAD */
 
-int lis2dw12_init_interrupt(struct device *dev)
+int lis2dw12_init_interrupt(const struct device *dev)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
 	int ret;
 
 	/* setup data ready gpio interrupt (INT1 or INT2) */
@@ -142,22 +242,24 @@ int lis2dw12_init_interrupt(struct device *dev)
 		return -EINVAL;
 	}
 
+	lis2dw12->dev = dev;
+
 #if defined(CONFIG_LIS2DW12_TRIGGER_OWN_THREAD)
 	k_sem_init(&lis2dw12->gpio_sem, 0, UINT_MAX);
 
 	k_thread_create(&lis2dw12->thread, lis2dw12->thread_stack,
 		       CONFIG_LIS2DW12_THREAD_STACK_SIZE,
-		       (k_thread_entry_t)lis2dw12_thread, dev,
-		       0, NULL, K_PRIO_COOP(CONFIG_LIS2DW12_THREAD_PRIORITY),
-		       0, 0);
+		       (k_thread_entry_t)lis2dw12_thread, lis2dw12,
+		       NULL, NULL, K_PRIO_COOP(CONFIG_LIS2DW12_THREAD_PRIORITY),
+		       0, K_NO_WAIT);
 #elif defined(CONFIG_LIS2DW12_TRIGGER_GLOBAL_THREAD)
 	lis2dw12->work.handler = lis2dw12_work_cb;
-	lis2dw12->dev = dev;
 #endif /* CONFIG_LIS2DW12_TRIGGER_OWN_THREAD */
 
+	lis2dw12->gpio_pin = cfg->int_gpio_pin;
+
 	ret = gpio_pin_configure(lis2dw12->gpio, cfg->int_gpio_pin,
-			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
-			   GPIO_INT_ACTIVE_HIGH | GPIO_INT_DEBOUNCE);
+				 GPIO_INPUT | cfg->int_gpio_flags);
 	if (ret < 0) {
 		LOG_DBG("Could not configure gpio");
 		return ret;
@@ -173,10 +275,10 @@ int lis2dw12_init_interrupt(struct device *dev)
 	}
 
 	/* enable interrupt on int1/int2 in pulse mode */
-	if (lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL3_ADDR,
-					LIS2DW12_LIR_MASK, LIS2DW12_DIS_BIT)) {
+	if (lis2dw12_int_notification_set(lis2dw12->ctx, LIS2DW12_INT_PULSED)) {
 		return -EIO;
 	}
 
-	return gpio_pin_enable_callback(lis2dw12->gpio, cfg->int_gpio_pin);
+	return gpio_pin_interrupt_configure(lis2dw12->gpio, cfg->int_gpio_pin,
+					    GPIO_INT_EDGE_TO_ACTIVE);
 }

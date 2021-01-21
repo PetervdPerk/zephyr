@@ -15,7 +15,7 @@
 		};
 
 		spi2: spi@40003800 {
-			compatible = "st,stm32-spi-fifo";
+			compatible = "st,stm32-spi-fifo", "st,stm32-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x40003800 0x400>;
@@ -33,6 +33,7 @@
 			num-bidir-endpoints = <8>;
 			ram-size = <1024>;
 			phys = <&usb_fs_phy>;
+			clocks = <&rcc STM32_CLOCK_BUS_APB1 0x00800000>;
 			status = "disabled";
 			label= "USB";
 		};

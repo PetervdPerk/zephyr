@@ -1,10 +1,7 @@
-# Kconfig - ADC configuration options
+# ADC configuration options
 
-#
 # Copyright (c) 2015 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 #
 # ADC options
@@ -13,11 +10,17 @@ menuconfig ADC
 	bool "ADC drivers"
 	# All platforms that implement the ADC driver are now required to
 	# provide relevant DTS entries.
-	select HAS_DTS_ADC
 	help
 	  Enable ADC (Analog to Digital Converter) driver configuration.
 
 if ADC
+
+config ADC_SHELL
+	bool "Enable ADC Shell"
+	default y
+	depends on SHELL
+	help
+	  Enable ADC Shell for testing.
 
 # By selecting or not this option particular ADC drivers indicate if it is
 # required to explicitly specify analog inputs when configuring channels or
@@ -35,26 +38,22 @@ module = ADC
 module-str = ADC
 source "subsys/logging/Kconfig.template.log_config"
 
-config ADC_INIT_PRIORITY
-	int "Init priority"
-	default 80
-	help
-	  ADC Device driver initialization priority.
-
-config ADC_0
-	bool "Enable ADC 0"
-
-config ADC_1
-	bool "Enable ADC 1"
-
-source "drivers/adc/Kconfig.dw"
-
 source "drivers/adc/Kconfig.mcux"
 
 source "drivers/adc/Kconfig.nrfx"
 
 source "drivers/adc/Kconfig.sam_afec"
 
-source "drivers/adc/Kconfig.intel_quark"
+source "drivers/adc/Kconfig.sam0"
+
+source "drivers/adc/Kconfig.stm32"
+
+source "drivers/adc/Kconfig.xec"
+
+source "drivers/adc/Kconfig.lmp90xxx"
+
+source "drivers/adc/Kconfig.mcp320x"
+
+source "drivers/adc/Kconfig.npcx"
 
 endif # ADC

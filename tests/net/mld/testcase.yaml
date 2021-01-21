@@ -1,6 +1,10 @@
 common:
-  platform_whitelist: native_posix qemu_x86 qemu_cortex_m3
+  tags: net mld
+  depends_on: netif
 tests:
   net.mld:
-    tags: net mld
-    depends_on: netif
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.mld.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

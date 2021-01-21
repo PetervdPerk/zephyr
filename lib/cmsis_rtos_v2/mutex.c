@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel_structs.h>
+#include <kernel.h>
+#include <string.h>
 #include "wrapper.h"
 
 K_MEM_SLAB_DEFINE(cv2_mutex_slab, sizeof(struct cv2_mutex),
@@ -38,7 +39,7 @@ osMutexId_t osMutexNew(const osMutexAttr_t *attr)
 	__ASSERT(!(attr->attr_bits & osMutexRobust),
 		 "Zephyr does not support osMutexRobust.\n");
 
-	if (k_mem_slab_alloc(&cv2_mutex_slab, (void **)&mutex, 100) == 0) {
+	if (k_mem_slab_alloc(&cv2_mutex_slab, (void **)&mutex, K_MSEC(100)) == 0) {
 		memset(mutex, 0, sizeof(struct cv2_mutex));
 	} else {
 		return NULL;
@@ -73,27 +74,27 @@ osStatus_t osMutexAcquire(osMutexId_t mutex_id, uint32_t timeout)
 		return osErrorISR;
 	}
 
-	if (mutex->z_mutex.lock_count == 0 ||
+	if (mutex->z_mutex.lock_count == 0U ||
 	    mutex->z_mutex.owner == _current) {
 	}
 
 	/* Throw an error if the mutex is not configured to be recursive and
 	 * the current thread is trying to acquire the mutex again.
 	 */
-	if ((mutex->state & osMutexRecursive) == 0) {
+	if ((mutex->state & osMutexRecursive) == 0U) {
 		if ((mutex->z_mutex.owner == _current) &&
-		    (mutex->z_mutex.lock_count != 0)) {
+		    (mutex->z_mutex.lock_count != 0U)) {
 			return osErrorResource;
 		}
 	}
 
 	if (timeout == osWaitForever) {
 		status = k_mutex_lock(&mutex->z_mutex, K_FOREVER);
-	} else if (timeout == 0) {
+	} else if (timeout == 0U) {
 		status = k_mutex_lock(&mutex->z_mutex, K_NO_WAIT);
 	} else {
 		status = k_mutex_lock(&mutex->z_mutex,
-				      __ticks_to_ms(timeout));
+				      K_TICKS(timeout));
 	}
 
 	if (status == -EBUSY) {
@@ -121,7 +122,7 @@ osStatus_t osMutexRelease(osMutexId_t mutex_id)
 	}
 
 	/* Mutex was not obtained before or was not owned by current thread */
-	if ((mutex->z_mutex.lock_count == 0) ||
+	if ((mutex->z_mutex.lock_count == 0U) ||
 	    (mutex->z_mutex.owner != _current)) {
 		return osErrorResource;
 	}
@@ -165,7 +166,7 @@ osThreadId_t osMutexGetOwner(osMutexId_t mutex_id)
 	}
 
 	/* Mutex was not obtained before */
-	if (mutex->z_mutex.lock_count == 0) {
+	if (mutex->z_mutex.lock_count == 0U) {
 		return NULL;
 	}
 

@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <misc/byteorder.h>
+#include <sys/byteorder.h>
 #include <zephyr.h>
 
 #include <settings/settings.h>
@@ -38,18 +38,17 @@ static struct bt_conn *pairing_conn;
 
 #define DATA_BREDR_MTU		48
 
-NET_BUF_POOL_DEFINE(data_pool, 1, DATA_BREDR_MTU, BT_BUF_USER_DATA_MIN,
-		    NULL);
+NET_BUF_POOL_FIXED_DEFINE(data_pool, 1, DATA_BREDR_MTU, NULL);
 
 #define SDP_CLIENT_USER_BUF_LEN		512
-NET_BUF_POOL_DEFINE(sdp_client_pool, CONFIG_BT_MAX_CONN,
-		    SDP_CLIENT_USER_BUF_LEN, BT_BUF_USER_DATA_MIN, NULL);
+NET_BUF_POOL_FIXED_DEFINE(sdp_client_pool, CONFIG_BT_MAX_CONN,
+			  SDP_CLIENT_USER_BUF_LEN, NULL);
 
 static int cmd_auth_pincode(const struct shell *shell,
 			    size_t argc, char *argv[])
 {
 	struct bt_conn *conn;
-	u8_t max = 16U;
+	uint8_t max = 16U;
 
 	if (default_conn) {
 		conn = default_conn;
@@ -83,7 +82,7 @@ static int cmd_connect(const struct shell *shell, size_t argc, char *argv[])
 	bt_addr_t addr;
 	int err;
 
-	err = str2bt_addr(argv[1], &addr);
+	err = bt_addr_from_str(argv[1], &addr);
 	if (err) {
 		shell_print(shell, "Invalid peer address (err %d)", err);
 		return -ENOEXEC;
@@ -103,8 +102,8 @@ static int cmd_connect(const struct shell *shell, size_t argc, char *argv[])
 	return 0;
 }
 
-static void br_device_found(const bt_addr_t *addr, s8_t rssi,
-				  const u8_t cod[3], const u8_t eir[240])
+static void br_device_found(const bt_addr_t *addr, int8_t rssi,
+				  const uint8_t cod[3], const uint8_t eir[240])
 {
 	char br_addr[BT_ADDR_STR_LEN];
 	char name[239];
@@ -174,7 +173,7 @@ static int cmd_discovery(const struct shell *shell, size_t argc, char *argv[])
 		struct bt_br_discovery_param param;
 
 		param.limited = false;
-		param.length = 8;
+		param.length = 8U;
 
 		if (argc > 2) {
 			param.length = atoi(argv[2]);
@@ -231,7 +230,7 @@ static struct net_buf *l2cap_alloc_buf(struct bt_l2cap_chan *chan)
 	return net_buf_alloc(&data_pool, K_FOREVER);
 }
 
-static struct bt_l2cap_chan_ops l2cap_ops = {
+static const struct bt_l2cap_chan_ops l2cap_ops = {
 	.alloc_buf	= l2cap_alloc_buf,
 	.recv		= l2cap_recv,
 	.connected	= l2cap_connected,
@@ -274,7 +273,7 @@ static int cmd_l2cap_register(const struct shell *shell,
 
 	if (bt_l2cap_br_server_register(&br_server) < 0) {
 		shell_error(shell, "Unable to register psm");
-		br_server.psm = 0;
+		br_server.psm = 0U;
 		return -ENOEXEC;
 	} else {
 		shell_print(shell, "L2CAP psm %u registered", br_server.psm);
@@ -358,12 +357,12 @@ static int cmd_oob(const struct shell *shell, size_t argc, char *argv[])
 	return 0;
 }
 
-static u8_t sdp_hfp_ag_user(struct bt_conn *conn,
+static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
 			       struct bt_sdp_client_result *result)
 {
 	char addr[BT_ADDR_STR_LEN];
-	u16_t param, version;
-	u16_t features;
+	uint16_t param, version;
+	uint16_t features;
 	int res;
 
 	conn_addr_str(conn, addr, sizeof(addr));
@@ -417,12 +416,12 @@ done:
 	return BT_SDP_DISCOVER_UUID_CONTINUE;
 }
 
-static u8_t sdp_a2src_user(struct bt_conn *conn,
+static uint8_t sdp_a2src_user(struct bt_conn *conn,
 			   struct bt_sdp_client_result *result)
 {
 	char addr[BT_ADDR_STR_LEN];
-	u16_t param, version;
-	u16_t features;
+	uint16_t param, version;
+	uint16_t features;
 	int res;
 
 	conn_addr_str(conn, addr, sizeof(addr));

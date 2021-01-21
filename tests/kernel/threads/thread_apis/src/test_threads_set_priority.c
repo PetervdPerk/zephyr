@@ -6,9 +6,8 @@
 
 #include <ztest.h>
 
-#define STACK_SIZE (384 + CONFIG_TEST_EXTRA_STACKSIZE)
-K_THREAD_STACK_EXTERN(tstack);
-extern struct k_thread tdata;
+#include "tests_thread_apis.h"
+
 static int thread2_data;
 
 K_SEM_DEFINE(sem_thread2, 0, 1);
@@ -74,7 +73,8 @@ void test_threads_priority_set(void)
 
 	k_tid_t thread2_id = k_thread_create(&tdata, tstack, STACK_SIZE,
 					     (k_thread_entry_t)thread2_set_prio_test,
-					     NULL, NULL, NULL, thread2_prio, 0, 0);
+					     NULL, NULL, NULL, thread2_prio, 0,
+					     K_NO_WAIT);
 
 	/* Lower the priority of thread2 */
 	k_thread_priority_set(thread2_id, thread2_prio + 2);

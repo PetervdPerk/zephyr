@@ -12,11 +12,11 @@
 #ifndef ZEPHYR_INCLUDE_NET_NET_EVENT_H_
 #define ZEPHYR_INCLUDE_NET_NET_EVENT_H_
 
+#include <net/net_ip.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <net/net_ip.h>
 
 /**
  * @addtogroup net_mgmt
@@ -26,7 +26,7 @@ extern "C" {
 /** @cond INTERNAL_HIDDEN */
 
 /* Network Interface events */
-#define _NET_IF_LAYER		NET_MGMT_LAYER_L1
+#define _NET_IF_LAYER		NET_MGMT_LAYER_L2
 #define _NET_IF_CORE_CODE	0x001
 #define _NET_EVENT_IF_BASE	(NET_MGMT_EVENT_BIT |			\
 				 NET_MGMT_IFACE_BIT |			\
@@ -131,6 +131,10 @@ enum net_event_ipv4_cmd {
 	NET_EVENT_IPV4_CMD_ADDR_ADD	= 1,
 	NET_EVENT_IPV4_CMD_ADDR_DEL,
 	NET_EVENT_IPV4_CMD_ROUTER_ADD,
+	NET_EVENT_IPV4_CMD_ROUTER_DEL,
+	NET_EVENT_IPV4_CMD_DHCP_START,
+	NET_EVENT_IPV4_CMD_DHCP_BOUND,
+	NET_EVENT_IPV4_CMD_DHCP_STOP,
 };
 
 #define NET_EVENT_IPV4_ADDR_ADD					\
@@ -141,6 +145,46 @@ enum net_event_ipv4_cmd {
 
 #define NET_EVENT_IPV4_ROUTER_ADD				\
 	(_NET_EVENT_IPV4_BASE |	NET_EVENT_IPV4_CMD_ROUTER_ADD)
+
+#define NET_EVENT_IPV4_ROUTER_DEL				\
+	(_NET_EVENT_IPV4_BASE |	NET_EVENT_IPV4_CMD_ROUTER_DEL)
+
+#define NET_EVENT_IPV4_DHCP_START				\
+	(_NET_EVENT_IPV4_BASE |	NET_EVENT_IPV4_CMD_DHCP_START)
+
+#define NET_EVENT_IPV4_DHCP_BOUND				\
+	(_NET_EVENT_IPV4_BASE |	NET_EVENT_IPV4_CMD_DHCP_BOUND)
+
+#define NET_EVENT_IPV4_DHCP_STOP				\
+	(_NET_EVENT_IPV4_BASE |	NET_EVENT_IPV4_CMD_DHCP_STOP)
+
+
+/* L4 network events */
+#define _NET_L4_LAYER		NET_MGMT_LAYER_L4
+#define _NET_L4_CORE_CODE	0x114
+#define _NET_EVENT_L4_BASE	(NET_MGMT_EVENT_BIT |			\
+				 NET_MGMT_IFACE_BIT |			\
+				 NET_MGMT_LAYER(_NET_L4_LAYER) |	\
+				 NET_MGMT_LAYER_CODE(_NET_L4_CORE_CODE))
+
+enum net_event_l4_cmd {
+	NET_EVENT_L4_CMD_CONNECTED = 1,
+	NET_EVENT_L4_CMD_DISCONNECTED,
+	NET_EVENT_L4_CMD_DNS_SERVER_ADD,
+	NET_EVENT_L4_CMD_DNS_SERVER_DEL,
+};
+
+#define NET_EVENT_L4_CONNECTED				\
+	(_NET_EVENT_L4_BASE | NET_EVENT_L4_CMD_CONNECTED)
+
+#define NET_EVENT_L4_DISCONNECTED			\
+	(_NET_EVENT_L4_BASE | NET_EVENT_L4_CMD_DISCONNECTED)
+
+#define NET_EVENT_DNS_SERVER_ADD			\
+	(_NET_EVENT_L4_BASE | NET_EVENT_L4_CMD_DNS_SERVER_ADD)
+
+#define NET_EVENT_DNS_SERVER_DEL			\
+	(_NET_EVENT_L4_BASE | NET_EVENT_L4_CMD_DNS_SERVER_DEL)
 
 /** @endcond */
 
@@ -184,7 +228,7 @@ struct net_event_ipv6_nbr {
 struct net_event_ipv6_route {
 	struct in6_addr nexthop;
 	struct in6_addr addr; /* addr/prefix */
-	u8_t prefix_len;
+	uint8_t prefix_len;
 };
 
 #endif /* CONFIG_NET_MGMT_EVENT_INFO */

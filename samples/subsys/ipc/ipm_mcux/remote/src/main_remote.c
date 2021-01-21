@@ -5,22 +5,23 @@
  */
 
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 #include <device.h>
-#include <ipm.h>
+#include <drivers/ipm.h>
 
-struct device *ipm;
-
-void ping_ipm_callback(void *context, u32_t id, volatile void *data)
+void ping_ipm_callback(const struct device *dev, void *context,
+		       uint32_t id, volatile void *data)
 {
-	ipm_send(ipm, 1, 0, (const void *)data, 4);
+	ipm_send(dev, 1, 0, (const void *)data, 4);
 }
 
 
 
 void main(void)
 {
-	ipm = device_get_binding(DT_NXP_LPC_MAILBOX_0_LABEL);
+	const struct device *ipm;
+
+	ipm = device_get_binding(DT_LABEL(DT_INST(0, nxp_lpc_mailbox)));
 	if (!ipm) {
 		while (1) {
 		}

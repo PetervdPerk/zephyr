@@ -48,31 +48,37 @@
  * is not defined in platform, generate an error
  */
 #if defined(CONFIG_HPET_TIMER)
-#define TICK_IRQ CONFIG_HPET_TIMER_IRQ
-#elif defined(CONFIG_LOAPIC_TIMER)
-#if defined(CONFIG_LOAPIC)
-#define TICK_IRQ CONFIG_LOAPIC_TIMER_IRQ
-#else
-/* MVIC case */
-#define TICK_IRQ CONFIG_MVIC_TIMER_IRQ
-#endif
-#elif defined(CONFIG_XTENSA)
+#define TICK_IRQ DT_IRQN(DT_INST(0, intel_hpet))
+#elif defined(CONFIG_ARM_ARCH_TIMER)
+#define TICK_IRQ ARM_ARCH_TIMER_IRQ
+#elif defined(CONFIG_APIC_TIMER)
+#define TICK_IRQ CONFIG_APIC_TIMER_IRQ
+#elif defined(CONFIG_XTENSA_TIMER)
 #define TICK_IRQ UTIL_CAT(XCHAL_TIMER,		\
 			  UTIL_CAT(CONFIG_XTENSA_TIMER_ID, _INTERRUPT))
 
+#elif defined(CONFIG_CAVS_TIMER)
+#define TICK_IRQ DSP_WCT_IRQ(0)
 #elif defined(CONFIG_ALTERA_AVALON_TIMER)
 #define TICK_IRQ TIMER_0_IRQ
 #elif defined(CONFIG_ARCV2_TIMER)
 #define TICK_IRQ IRQ_TIMER0
 #elif defined(CONFIG_RISCV_MACHINE_TIMER)
 #define TICK_IRQ RISCV_MACHINE_TIMER_IRQ
+#elif defined(CONFIG_ITE_IT8XXX2_TIMER)
+#define TICK_IRQ DT_IRQ_BY_IDX(DT_NODELABEL(timer), 5, irq)
+#elif defined(CONFIG_LITEX_TIMER)
+#define TICK_IRQ DT_IRQN(DT_NODELABEL(timer0))
 #elif defined(CONFIG_RV32M1_LPTMR_TIMER)
-#define TICK_IRQ DT_OPENISA_RV32M1_LPTMR_SYSTEM_LPTMR_IRQ
+#define TICK_IRQ DT_IRQN(DT_ALIAS(system_lptmr))
+#elif defined(CONFIG_XLNX_PSTTC_TIMER)
+#define TICK_IRQ DT_IRQN(DT_INST(0, xlnx_ttcps))
 #elif defined(CONFIG_CPU_CORTEX_M)
 /*
  * The Cortex-M use the SYSTICK exception for the system timer, which is
  * not considered an IRQ by the irq_enable/Disable APIs.
  */
+#elif defined(CONFIG_SPARC)
 #elif defined(CONFIG_ARCH_POSIX)
 #if  defined(CONFIG_BOARD_NATIVE_POSIX)
 #define TICK_IRQ TIMER_TICK_IRQ
@@ -87,11 +93,15 @@
 #error Timer type is not defined for this platform
 #endif
 
-/* Nios II and RISCV32 without CONFIG_RISCV_HAS_CPU_IDLE
- * do have a power saving instruction, so k_cpu_idle() returns immediately
+/* Cortex-M1, Nios II, and RISCV without CONFIG_RISCV_HAS_CPU_IDLE
+ * do have a power saving instruction, so k_cpu_idle() returns immediately.
+ *
+ * Includes workaround on QEMU aarch64, see
+ * https://github.com/zephyrproject-rtos/sdk-ng/issues/255
  */
-#if !defined(CONFIG_NIOS2) && \
-	(!defined(CONFIG_RISCV32) || defined(CONFIG_RISCV_HAS_CPU_IDLE))
+#if !defined(CONFIG_CPU_CORTEX_M1) && !defined(CONFIG_NIOS2) && \
+	!defined(CONFIG_SOC_QEMU_CORTEX_A53) && \
+	(!defined(CONFIG_RISCV) || defined(CONFIG_RISCV_HAS_CPU_IDLE))
 #define HAS_POWERSAVE_INSTRUCTION
 #endif
 
@@ -127,6 +137,84 @@ static struct k_thread thread_data3;
 static ISR_INFO isr_info;
 
 /**
+ * @brief Test cpu idle function
+ *
+ * @details
+ * Test Objectve:
+ * - The kernel architecture provide an idle function to be run when the system
+ *   has no work for the current CPU
+ * - This routine tests the k_cpu_idle() routine
+ *
+ * Testing techniques
+ * - Functional and black box testing
+ * - Interface testing
+ *
+ * Prerequisite Condition:
+ * - HAS_POWERSAVE_INSTRUCTION is set
+ *
+ * Input Specifications:
+ * - N/A
+ *
+ * Test Procedure:
+ * -# Record system time before cpu enters idle state
+ * -# Enter cpu idle state by k_cpu_idle()
+ * -# Record system time after cpu idle state is interrupted
+ * -# Compare the two system time values.
+ *
+ * Expected Test Result:
+ * - cpu enters idle state for a given time
+ *
+ * Pass/Fail criteria:
+ * - Success if the cpu enters idle state, failure otherwise.
+ *
+ * Assumptions and Constraints
+ * - N/A
+ *
+ * @see k_cpu_idle()
+ * @ingroup kernel_context_tests
+ */
+static void test_kernel_cpu_idle(void);
+
+/**
+ * @brief Test cpu idle function
+ *
+ * @details
+ * Test Objectve:
+ * - The kernel architecture provide an idle function to be run when the system
+ *   has no work for the current CPU
+ * - This routine tests the k_cpu_atomic_idle() routine
+ *
+ * Testing techniques
+ * - Functional and black box testing
+ * - Interface testing
+ *
+ * Prerequisite Condition:
+ * - HAS_POWERSAVE_INSTRUCTION is set
+ *
+ * Input Specifications:
+ * - N/A
+ *
+ * Test Procedure:
+ * -# Record system time befor cpu enters idle state
+ * -# Enter cpu idle state by k_cpu_atomic_idle()
+ * -# Record system time after cpu idle state is interrupted
+ * -# Compare the two system time values.
+ *
+ * Expected Test Result:
+ * - cpu enters idle state for a given time
+ *
+ * Pass/Fail criteria:
+ * - Success if the cpu enters idle state, failure otherwise.
+ *
+ * Assumptions and Constraints
+ * - N/A
+ *
+ * @see k_cpu_atomic_idle()
+ * @ingroup kernel_context_tests
+ */
+static void test_kernel_cpu_idle_atomic(void);
+
+/**
  * @brief Handler to perform various actions from within an ISR context
  *
  * This routine is the ISR handler for isr_handler_trigger(). It performs
@@ -134,7 +222,7 @@ static ISR_INFO isr_info;
  *
  * @return N/A
  */
-static void isr_handler(void *data)
+static void isr_handler(const void *data)
 {
 	ARG_UNUSED(data);
 
@@ -226,20 +314,52 @@ void irq_enable_wrapper(int irq)
 	irq_enable(irq);
 }
 
+#if defined(HAS_POWERSAVE_INSTRUCTION)
 #if defined(CONFIG_TICKLESS_KERNEL)
-static void test_kernel_cpu_idle(void)
+static struct k_timer idle_timer;
+
+static void idle_timer_expiry_function(struct k_timer *timer_id)
 {
-	ztest_test_skip();
+	k_timer_stop(&idle_timer);
 }
-static void test_kernel_cpu_idle_atomic(void)
-{
-	ztest_test_skip();
-}
-#elif defined(HAS_POWERSAVE_INSTRUCTION)
+
 static void _test_kernel_cpu_idle(int atomic)
 {
-	int tms, tms2;;         /* current time in millisecond */
-	int i;                  /* loop variable */
+	int tms, tms2;
+	int i;
+
+	/* Align to ticks so the first iteration sleeps long enough
+	 * (k_timer_start() rounds its duration argument down, not up,
+	 * to a tick boundary)
+	 */
+	 k_usleep(1);
+
+	/* Set up a time to trigger events to exit idle mode */
+	k_timer_init(&idle_timer, idle_timer_expiry_function, NULL);
+
+	for (i = 0; i < 5; i++) { /* Repeat the test five times */
+		k_timer_start(&idle_timer, K_MSEC(1), K_NO_WAIT);
+		tms = k_uptime_get_32();
+		if (atomic) {
+			unsigned int key = irq_lock();
+
+			k_cpu_atomic_idle(key);
+		} else {
+			k_cpu_idle();
+		}
+		tms += 1;
+		tms2 = k_uptime_get_32();
+		zassert_false(tms2 < tms, "Bad ms value computed,"
+	      "got %d which is less than %d\n",
+	      tms2, tms);
+	}
+}
+
+#else /* CONFIG_TICKLESS_KERNEL */
+static void _test_kernel_cpu_idle(int atomic)
+{
+	int tms, tms2;
+	int i;
 
 	/* Align to a "ms boundary". */
 	tms = k_uptime_get_32();
@@ -250,7 +370,7 @@ static void _test_kernel_cpu_idle(int atomic)
 	}
 
 	tms = k_uptime_get_32();
-	for (i = 0; i < 5; i++) {       /* Repeat the test five times */
+	for (i = 0; i < 5; i++) { /* Repeat the test five times */
 		if (atomic) {
 			unsigned int key = irq_lock();
 
@@ -259,13 +379,14 @@ static void _test_kernel_cpu_idle(int atomic)
 			k_cpu_idle();
 		}
 		/* calculating milliseconds per tick*/
-		tms += __ticks_to_ms(1);
+		tms += k_ticks_to_ms_floor64(1);
 		tms2 = k_uptime_get_32();
 		zassert_false(tms2 < tms, "Bad ms per tick value computed,"
 			      "got %d which is less than %d\n",
 			      tms2, tms);
 	}
 }
+#endif /* CONFIG_TICKLESS_KERNEL */
 
 /**
  *
@@ -294,10 +415,17 @@ static void test_kernel_cpu_idle_atomic(void)
 
 static void test_kernel_cpu_idle(void)
 {
+/*
+ * Fixme: remove the skip code when sleep instruction in
+ * nsim_hs_smp is fixed.
+ */
+#if defined(CONFIG_SOC_NSIM) && defined(CONFIG_SMP)
+	ztest_test_skip();
+#endif
 	_test_kernel_cpu_idle(0);
 }
 
-#else
+#else /* HAS_POWERSAVE_INSTRUCTION */
 static void test_kernel_cpu_idle(void)
 {
 	ztest_test_skip();
@@ -381,15 +509,51 @@ static void _test_kernel_interrupts(disable_int_func disable_int,
 }
 
 /**
- *
  * @brief Test routines for disabling and enabling interrupts
  *
  * @ingroup kernel_context_tests
  *
- * This routine tests the routines for disabling and enabling interrupts.
- * These include irq_lock() and irq_unlock(), irq_disable() and irq_enable().
+ * @details
+ * Test Objective:
+ * - To verify kernel architecture layer shall provide a mechanism to
+ *   selectively disable and enable specific numeric interrupts.
+ * - This routine tests the routines for disabling and enabling interrupts.
+ *   These include irq_lock() and irq_unlock().
  *
- * @see irq_lock(), irq_unlock(), irq_disable(), irq_enable()
+ * Testing techniques:
+ * - Interface testing, function and black box testing,
+ *   dynamic analysis and testing
+ *
+ * Prerequisite Conditions:
+ * - CONFIG_TICKLESS_KERNEL is not set.
+ *
+ * Input Specifications:
+ * - N/A
+ *
+ * Test Procedure:
+ * -# Do action to align to a tick boundary.
+ * -# Left shift 4 bits for the value of counts.
+ * -# Call irq_lock() and restore its return value to imask.
+ * -# Call z_tick_get_32() and store its return value to tick.
+ * -# Repeat counts of calling z_tick_get_32().
+ * -# Call z_tick_get_32() and store its return value to tick2.
+ * -# Call irq_unlock() with parameter imask.
+ * -# Check if tick is equal to tick2.
+ * -# Repeat counts of calling z_tick_get_32().
+ * -# Call z_tick_get_32() and store its return value to tick2.
+ * -# Check if tick is NOT equal to tick2.
+ *
+ * Expected Test Result:
+ * - The ticks shall not increase while interrupt locked.
+ *
+ * Pass/Fail Criteria:
+ * - Successful if check points in test procedure are all passed, otherwise
+ *   failure.
+ *
+ * Assumptions and Constraints:
+ * - N/A
+ *
+ * @see irq_lock(), irq_unlock()
  */
 static void test_kernel_interrupts(void)
 {
@@ -402,15 +566,52 @@ static void test_kernel_interrupts(void)
 }
 
 /**
- *
  * @brief Test routines for disabling and enabling interrupts (disable timer)
  *
  * @ingroup kernel_context_tests
  *
- * This routine tests the routines for disabling and enabling interrupts.
- * These include irq_lock() and irq_unlock(), irq_disable() and irq_enable().
+ * @details
+ * Test Objective:
+ * - To verify the kernel architecture layer shall provide a mechanism to
+ *   simultenously mask all local CPU interrupts and return the previous mask
+ *   state for restoration.
+ * - This routine tests the routines for disabling and enabling interrupts.
+ *   These include irq_disable() and irq_enable().
  *
- * @see irq_lock(), irq_unlock(), irq_disable(), irq_enable()
+ * Testing techniques:
+ * - Interface testing, function and black box testing,
+ *   dynamic analysis and testing
+ *
+ * Prerequisite Conditions:
+ * - TICK_IRQ is defined.
+ *
+ * Input Specifications:
+ * - N/A
+ *
+ * Test Procedure:
+ * -# Do action to align to a tick boundary.
+ * -# Left shift 4 bit for the value of counts.
+ * -# Call irq_disable() and restore its return value to imask.
+ * -# Call z_tick_get_32() and store its return value to tick.
+ * -# Repeat counts of calling z_tick_get_32().
+ * -# Call z_tick_get_32() and store its return value to tick2.
+ * -# Call irq_enable() with parameter imask.
+ * -# Check if tick is equal to tick2.
+ * -# Repeat counts of calling z_tick_get_32().
+ * -# Call z_tick_get_32() and store its return value to tick2.
+ * -# Check if tick is NOT equal to tick2.
+ *
+ * Expected Test Result:
+ * - The ticks shall not increase while interrupt locked.
+ *
+ * Pass/Fail Criteria:
+ * - Successful if check points in test procedure are all passed, otherwise
+ *   failure.
+ *
+ * Assumptions and Constraints:
+ * - N/A
+ *
+ * @see irq_disable(), irq_enable()
  */
 static void test_kernel_timer_interrupts(void)
 {
@@ -423,16 +624,43 @@ static void test_kernel_timer_interrupts(void)
 }
 
 /**
+ * @brief Test some context routines
  *
- * @brief Test some context routines from a preemptible thread
+ * @details
+ * Test Objectve:
+ * - Thread context handles derived from context switches must be able to be
+ *   restored upon interrupt exit
+ *
+ * Testing techniques
+ * - Functional and black box testing
+ * - Interface testing
+ *
+ * Prerequisite Condition:
+ * - N/A
+ *
+ * Input Specifications:
+ * - N/A
+ *
+ * Test Procedure:
+ * -# Set priority of current thread to 0 as a preemptible thread
+ * -# Trap to interrupt context, get thread id of the interrupted thread and
+ *  pass back to that thread.
+ * -# Return to thread context and make sure this context is interrupted by
+ *  comparing its thread ID and the thread ID passed by isr.
+ * -# Pass command to isr to check whether the isr is executed in interrupt
+ *  context
+ * -# When return to thread context, check the return value of command.
+ *
+ * Expected Test Result:
+ * - Thread context restored upon interrupt exit
+ *
+ * Pass/Fail criteria:
+ * - Success if context of thread restored correctly, failure otherwise.
+ *
+ * Assumptions and Constraints
+ * - N/A
  *
  * @ingroup kernel_context_tests
- *
- * This routines tests the k_current_get() and
- * k_is_in_isr() routines from both a preemptible thread  and an ISR (that
- * interrupted a preemptible thread). Checking those routines with cooperative
- * threads are done elsewhere.
- *
  * @see k_current_get(), k_is_in_isr()
  */
 static void test_kernel_ctx_thread(void)
@@ -578,7 +806,7 @@ static void k_yield_entry(void *arg0, void *arg1, void *arg2)
 
 	k_thread_create(&thread_data2, thread_stack2, THREAD_STACKSIZE,
 			thread_helper, NULL, NULL, NULL,
-			K_PRIO_COOP(THREAD_PRIORITY - 1), 0, 0);
+			K_PRIO_COOP(THREAD_PRIORITY - 1), 0, K_NO_WAIT);
 
 	zassert_equal(thread_evidence, 0,
 		      "Helper created at higher priority ran prematurely.");
@@ -633,7 +861,7 @@ static void kernel_thread_entry(void *_thread_id, void *arg1, void *arg2)
  */
 struct timeout_order {
 	void *link_in_fifo;
-	s32_t timeout;
+	int32_t timeout;
 	int timeout_order;
 	int q_order;
 };
@@ -656,16 +884,26 @@ static struct k_thread timeout_threads[NUM_TIMEOUT_THREADS];
 /* a thread busy waits */
 static void busy_wait_thread(void *mseconds, void *arg2, void *arg3)
 {
-	u32_t usecs;
+	uint32_t usecs;
 
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 
-	usecs = (int)mseconds * 1000;
+	usecs = POINTER_TO_INT(mseconds) * 1000;
 
 	TC_PRINT("Thread busy waiting for %d usecs\n", usecs);
 	k_busy_wait(usecs);
 	TC_PRINT("Thread busy waiting completed\n");
+
+	/* FIXME: Broken on Nios II, see #22956 */
+#ifndef CONFIG_NIOS2
+	int key = arch_irq_lock();
+
+	TC_PRINT("Thread busy waiting for %d usecs (irqs locked)\n", usecs);
+	k_busy_wait(usecs);
+	TC_PRINT("Thread busy waiting completed (irqs locked)\n");
+	arch_irq_unlock(key);
+#endif
 
 	/*
 	 * Ideally the test should verify that the correct number of ticks
@@ -686,19 +924,21 @@ static void busy_wait_thread(void *mseconds, void *arg2, void *arg3)
 /* a thread sleeps and times out, then reports through a fifo */
 static void thread_sleep(void *delta, void *arg2, void *arg3)
 {
-	s64_t timestamp;
-	int timeout = (int)delta;
+	int64_t timestamp;
+	int timeout = POINTER_TO_INT(delta);
 
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 
 	TC_PRINT(" thread sleeping for %d milliseconds\n", timeout);
 	timestamp = k_uptime_get();
-	k_sleep(timeout);
+	k_msleep(timeout);
 	timestamp = k_uptime_get() - timestamp;
 	TC_PRINT(" thread back from sleep\n");
 
-	if (timestamp < timeout || timestamp > timeout + __ticks_to_ms(2)) {
+	int slop = MAX(k_ticks_to_ms_floor64(2), 1);
+
+	if (timestamp < timeout || timestamp > timeout + slop) {
 		TC_ERROR("timestamp out of range, got %d\n", (int)timestamp);
 		return;
 	}
@@ -709,7 +949,7 @@ static void thread_sleep(void *delta, void *arg2, void *arg3)
 /* a thread is started with a delay, then it reports that it ran via a fifo */
 static void delayed_thread(void *num, void *arg2, void *arg3)
 {
-	struct timeout_order *timeout = &timeouts[(int)num];
+	struct timeout_order *timeout = &timeouts[POINTER_TO_INT(num)];
 
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
@@ -729,17 +969,17 @@ static void delayed_thread(void *num, void *arg2, void *arg3)
  */
 static void test_busy_wait(void)
 {
-	s32_t timeout;
+	int32_t timeout;
 	int rv;
 
 	timeout = 20;           /* in ms */
 
 	k_thread_create(&timeout_threads[0], timeout_stacks[0],
 			THREAD_STACKSIZE2, busy_wait_thread,
-			(void *)(intptr_t) timeout, NULL,
-			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, 0);
+			INT_TO_POINTER(timeout), NULL,
+			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, K_NO_WAIT);
 
-	rv = k_sem_take(&reply_timeout, timeout * 2);
+	rv = k_sem_take(&reply_timeout, K_MSEC(timeout * 2 * 2));
 
 	zassert_false(rv, " *** thread timed out waiting for " "k_busy_wait()");
 }
@@ -754,7 +994,7 @@ static void test_busy_wait(void)
 static void test_k_sleep(void)
 {
 	struct timeout_order *data;
-	s32_t timeout;
+	int32_t timeout;
 	int rv;
 	int i;
 
@@ -763,10 +1003,10 @@ static void test_k_sleep(void)
 
 	k_thread_create(&timeout_threads[0], timeout_stacks[0],
 			THREAD_STACKSIZE2, thread_sleep,
-			(void *)(intptr_t) timeout, NULL,
-			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, 0);
+			INT_TO_POINTER(timeout), NULL,
+			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, K_NO_WAIT);
 
-	rv = k_sem_take(&reply_timeout, timeout * 2);
+	rv = k_sem_take(&reply_timeout, K_MSEC(timeout * 2));
 	zassert_equal(rv, 0, " *** thread timed out waiting for thread on "
 		      "k_sleep().");
 
@@ -777,12 +1017,12 @@ static void test_k_sleep(void)
 		k_thread_create(&timeout_threads[i], timeout_stacks[i],
 				THREAD_STACKSIZE2,
 				delayed_thread,
-				(void *)i,
-				NULL, NULL,
-				K_PRIO_COOP(5), 0, timeouts[i].timeout);
+				INT_TO_POINTER(i), NULL, NULL,
+				K_PRIO_COOP(5), 0,
+				K_MSEC(timeouts[i].timeout));
 	}
 	for (i = 0; i < NUM_TIMEOUT_THREADS; i++) {
-		data = k_fifo_get(&timeout_order_fifo, 750);
+		data = k_fifo_get(&timeout_order_fifo, K_MSEC(750));
 		zassert_not_null(data, " *** timeout while waiting for"
 				 " delayed thread");
 
@@ -795,7 +1035,7 @@ static void test_k_sleep(void)
 	}
 
 	/* ensure no more thread fire */
-	data = k_fifo_get(&timeout_order_fifo, 750);
+	data = k_fifo_get(&timeout_order_fifo, K_MSEC(750));
 
 	zassert_false(data, " *** got something unexpected in the fifo");
 
@@ -813,8 +1053,9 @@ static void test_k_sleep(void)
 
 		id = k_thread_create(&timeout_threads[i], timeout_stacks[i],
 				     THREAD_STACKSIZE2, delayed_thread,
-				     (void *)i, NULL, NULL,
-				     K_PRIO_COOP(5), 0, timeouts[i].timeout);
+				     INT_TO_POINTER(i), NULL, NULL,
+				     K_PRIO_COOP(5), 0,
+				     K_MSEC(timeouts[i].timeout));
 
 		delayed_threads[i] = id;
 	}
@@ -840,7 +1081,7 @@ static void test_k_sleep(void)
 			}
 		}
 
-		data = k_fifo_get(&timeout_order_fifo, 2750);
+		data = k_fifo_get(&timeout_order_fifo, K_MSEC(2750));
 
 		zassert_not_null(data, " *** timeout while waiting for"
 				 " delayed thread");
@@ -859,7 +1100,7 @@ static void test_k_sleep(void)
 		      "got %d\n", num_cancellations, next_cancellation);
 
 	/* ensure no more thread fire */
-	data = k_fifo_get(&timeout_order_fifo, 750);
+	data = k_fifo_get(&timeout_order_fifo, K_MSEC(750));
 	zassert_false(data, " *** got something unexpected in the fifo");
 
 }
@@ -886,7 +1127,7 @@ void test_k_yield(void)
 
 	k_thread_create(&thread_data1, thread_stack1, THREAD_STACKSIZE,
 			k_yield_entry, NULL, NULL,
-			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, 0);
+			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, K_NO_WAIT);
 
 	zassert_equal(thread_evidence, 1,
 		      "Thread did not execute as expected!: %d", thread_evidence);
@@ -903,31 +1144,33 @@ void test_k_yield(void)
  *
  * @see k_thread_create
  */
+
 void test_kernel_thread(void)
 {
 
 	k_thread_create(&thread_data3, thread_stack3, THREAD_STACKSIZE,
 			kernel_thread_entry, NULL, NULL,
-			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, 0);
+			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, K_NO_WAIT);
 
 }
 
 /*test case main entry*/
 void test_main(void)
 {
+	(void)test_k_sleep;
 
 	kernel_init_objects();
 
 	ztest_test_suite(context,
 			 ztest_unit_test(test_kernel_interrupts),
-			 ztest_unit_test(test_kernel_timer_interrupts),
+			 ztest_1cpu_unit_test(test_kernel_timer_interrupts),
 			 ztest_unit_test(test_kernel_ctx_thread),
-			 ztest_unit_test(test_busy_wait),
-			 ztest_unit_test(test_k_sleep),
+			 ztest_1cpu_unit_test(test_busy_wait),
+			 ztest_1cpu_unit_test(test_k_sleep),
 			 ztest_unit_test(test_kernel_cpu_idle_atomic),
 			 ztest_unit_test(test_kernel_cpu_idle),
-			 ztest_unit_test(test_k_yield),
-			 ztest_unit_test(test_kernel_thread)
+			 ztest_1cpu_unit_test(test_k_yield),
+			 ztest_1cpu_unit_test(test_kernel_thread)
 			 );
 	ztest_run_test_suite(context);
 }

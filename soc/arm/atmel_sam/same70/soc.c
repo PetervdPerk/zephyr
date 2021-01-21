@@ -14,7 +14,11 @@
 #include <device.h>
 #include <init.h>
 #include <soc.h>
-#include <cortex_m/exc.h>
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
+#include <logging/log.h>
+
+#define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
+LOG_MODULE_REGISTER(soc);
 
 /* Power Manager Controller */
 
@@ -53,7 +57,7 @@
  */
 static ALWAYS_INLINE void clock_init(void)
 {
-	u32_t reg_val;
+	uint32_t reg_val;
 
 #ifdef CONFIG_SOC_ATMEL_SAME70_EXT_SLCK
 	/* Switch slow clock to the external 32 kHz crystal oscillator */
@@ -219,9 +223,9 @@ static ALWAYS_INLINE void clock_init(void)
  *
  * @return 0
  */
-static int atmel_same70_init(struct device *arg)
+static int atmel_same70_init(const struct device *arg)
 {
-	u32_t key;
+	uint32_t key;
 
 	ARG_UNUSED(arg);
 
@@ -232,9 +236,6 @@ static int atmel_same70_init(struct device *arg)
 	if (!(SCB->CCR & SCB_CCR_DC_Msk)) {
 		SCB_EnableDCache();
 	}
-
-	/* Clear all faults */
-	_ClearFaults();
 
 	/*
 	 * Set FWS (Flash Wait State) value before increasing Master Clock
@@ -253,6 +254,12 @@ static int atmel_same70_init(struct device *arg)
 	NMI_INIT();
 
 	irq_unlock(key);
+
+	/* Check that the CHIP CIDR matches the HAL one */
+	if (CHIPID->CHIPID_CIDR != CHIP_CIDR) {
+		LOG_WRN("CIDR mismatch: chip = 0x%08x vs HAL = 0x%08x",
+			(uint32_t)CHIPID->CHIPID_CIDR, (uint32_t)CHIP_CIDR);
+	}
 
 	return 0;
 }

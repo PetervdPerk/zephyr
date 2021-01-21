@@ -6,7 +6,8 @@
 
 #include <kernel.h>
 #include <stdio.h>
-#include <misc/printk.h>
+#include <net/openthread.h>
+#include <sys/printk.h>
 #include <shell/shell.h>
 #include <shell/shell_uart.h>
 
@@ -15,7 +16,7 @@
 
 #include "platform-zephyr.h"
 
-#define OT_SHELL_BUFFER_SIZE 256
+#define OT_SHELL_BUFFER_SIZE CONFIG_SHELL_CMD_BUFF_SIZE
 
 static char rx_buffer[OT_SHELL_BUFFER_SIZE];
 
@@ -39,6 +40,7 @@ static int ot_cmd(const struct shell *shell, size_t argc, char *argv[])
 	char *buf_ptr = rx_buffer;
 	size_t buf_len = OT_SHELL_BUFFER_SIZE;
 	size_t arg_len = 0;
+	k_tid_t ot_tid = openthread_thread_id_get();
 	int i;
 
 	for (i = 1; i < argc; i++) {
@@ -50,7 +52,7 @@ static int ot_cmd(const struct shell *shell, size_t argc, char *argv[])
 			buf_ptr += arg_len + 1;
 		}
 
-		arg_len = snprintf(buf_ptr, buf_len, "%s", argv[i]);
+		arg_len = snprintk(buf_ptr, buf_len, "%s", argv[i]);
 
 		if (arg_len >= buf_len) {
 			shell_fprintf(shell, SHELL_WARNING,
@@ -64,7 +66,13 @@ static int ot_cmd(const struct shell *shell, size_t argc, char *argv[])
 	}
 
 	shell_p = shell;
+
+	/* Halt the OpenThread thread execution. This will prevent from being
+	 * rescheduled into the OT thread in the middle of command processing.
+	 */
+	k_thread_suspend(ot_tid);
 	otCliConsoleInputLine(rx_buffer, OT_SHELL_BUFFER_SIZE - buf_len);
+	k_thread_resume(ot_tid);
 
 	return 0;
 }
@@ -75,4 +83,3 @@ void platformShellInit(otInstance *aInstance)
 {
 	otCliConsoleInit(aInstance, otConsoleOutputCallback, NULL);
 }
-

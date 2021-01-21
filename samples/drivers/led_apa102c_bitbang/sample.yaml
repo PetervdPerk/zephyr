@@ -1,7 +1,7 @@
 sample:
-  name: Utilize APA102C LED on Arduino 101
+  name: Utilize APA102C LED
 tests:
-  test:
-    platform_whitelist: arduino_101
+  sample.drivers.led.apa102c_bitbang:
     tags: LED
+    filter: dt_alias_exists("gpio-0")
     depends_on: gpio

@@ -13,9 +13,9 @@ This board acts as a sensor hub platform for all 96Boards compliant
 family products. It can also be used as a standalone board.
 
 .. figure:: img/96b_argonkey.jpg
-     :width: 557px
+     :width: 540px
      :align: center
-     :height: 480px
+     :height: 558px
      :alt: 96Boards Argonkey
 
      96Boards Argonkey
@@ -76,6 +76,9 @@ features:
 | I2C       | on-chip    | i2c                                 |
 +-----------+------------+-------------------------------------+
 
+More information about the board can be found at the
+`ARGONKEY website`_.
+
 The default board configuration can be found in the defconfig file:
 
         ``boards/arm/96b_argonkey/96b_argonkey_defconfig``
@@ -122,7 +125,7 @@ I2C
 - I2C3_SCL  : PB4
 
 I2C3 goes to the P2 connector and can be used to attach external sensors.
-It goes to 100kbit maximum.
+It goes to 100Kbit maximum.
 
 SPI
 ---
@@ -222,6 +225,9 @@ References
 **********
 
 .. target-notes::
+
+.. _ARGONKEY website:
+   https://www.st.com/en/evaluation-tools/steval-mki187v1.html
 
 .. _AN2606:
    https://www.st.com/resource/en/application_note/cd00167594.pdf

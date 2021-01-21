@@ -28,24 +28,28 @@ Supported Features
 The olimexino_stm32 board configuration supports the following
 hardware features:
 
-+-----------+------------+----------------------+
-| Interface | Controller | Driver/Component     |
-+===========+============+======================+
-| NVIC      | on-chip    | nested vectored      |
-|           |            | interrupt controller |
-+-----------+------------+----------------------+
-| SYSTICK   | on-chip    | system clock         |
-+-----------+------------+----------------------+
-| UART      | on-chip    | serial port          |
-+-----------+------------+----------------------+
-| GPIO      | on-chip    | gpio                 |
-+-----------+------------+----------------------+
-| I2C       | on-chip    | i2c                  |
-+-----------+------------+----------------------+
-| SPI       | on-chip    | spi                  |
-+-----------+------------+----------------------+
-| USB       | on-chip    | USB device           |
-+-----------+------------+----------------------+
++-----------+------------+-------------------------+
+| Interface | Controller | Driver/Component        |
++===========+============+=========================+
+| NVIC      | on-chip    | nested vectored         |
+|           |            | interrupt controller    |
++-----------+------------+-------------------------+
+| SYSTICK   | on-chip    | system clock            |
++-----------+------------+-------------------------+
+| UART      | on-chip    | serial port             |
++-----------+------------+-------------------------+
+| GPIO      | on-chip    | gpio                    |
++-----------+------------+-------------------------+
+| I2C       | on-chip    | i2c                     |
++-----------+------------+-------------------------+
+| SPI       | on-chip    | spi                     |
++-----------+------------+-------------------------+
+| USB       | on-chip    | USB device              |
++-----------+------------+-------------------------+
+| WATCHDOG  | on-chip    | independent watchdog    |
++-----------+------------+-------------------------+
+| CAN       | on-chip    | Controller Area Network |
++-----------+------------+-------------------------+
 
 Other hardware features are not supported by the Zephyr kernel.
 
@@ -288,6 +292,18 @@ CON4 digital
 |       |              | I2C1_SCL / CANRX        |
 +-------+--------------+-------------------------+
 
+CAN
+
++-------+-------------+
+| PIN # | Signal Name |
++=======+=============+
+| 1     | GND         |
++-------+-------------+
+| 2     | CAN L       |
++-------+-------------+
+| 3     | CAN H       |
++-------+-------------+
+
 System Clock
 ============
 
@@ -315,8 +331,11 @@ OLIMEXINO-STM32 board has up to 2 SPIs. The default SPI mapping for Zephyr is:
 I2C
 ===
 
-OLIMEXINO-STM32 board has up to 1 I2C. The default I2C mapping for Zephyr is:
+The OLIMEXINO-STM32 board supports two I2C devices. The default I2C mapping for
+Zephyr is:
 
+- I2C1_SCL : PB6
+- I2C1_SDA : PB7
 - I2C2_SCL : PB10
 - I2C2_SDA : PB11
 
@@ -328,6 +347,15 @@ through its mini USB connector.
 
 - USB_DM : PA11
 - USB_DP : PA12
+
+CAN
+===
+
+OLIMEXINO-STM32 board has a CAN interface with transceiver on board.
+CAN is accessible through a screw terminal.
+
+- CAN_RX : PB8
+- CAN_TX : PB9
 
 Jumpers
 =======
@@ -392,13 +420,6 @@ To upload an application to the OLIMEXINO-STM32 board a TTL(3.3V)
 serial adapter is required. This tutorial uses the
 :ref:`button-sample` sample application.
 
-#. To build the Zephyr kernel and application, enter:
-
-   .. zephyr-app-commands::
-      :zephyr-app: samples/basic/button
-      :board: olimexino_stm32
-      :goals: build
-
 #. Connect the serial cable to the UEXT lines of the UART
    interface (pin #3=TX and pin #4=RX).
 
@@ -406,16 +427,12 @@ serial adapter is required. This tutorial uses the
 
 #. Reset the board while holding the button (BUT).
 
-#. Flash the application using the stm32flash tool. Start
-   by navigating to the build directory containing zephyr.bin.
+#. To build the application and flash it, enter:
 
-   .. code-block:: console
-
-      $ stm32flash -w zephyr.bin -v -g 0x0 <tty_device>
-
-   Replace :code:`<tty_device>` with the port where the board
-   OLIMEXINO-STM32 can be found. For example, under Linux,
-   :code:`/dev/ttyUSB0`.
+   .. zephyr-app-commands::
+      :zephyr-app: samples/basic/button
+      :board: olimexino_stm32
+      :goals: flash
 
 #. Run your favorite terminal program to listen for output.
 

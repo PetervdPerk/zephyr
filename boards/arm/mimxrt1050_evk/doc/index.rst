@@ -105,12 +105,16 @@ features:
 +-----------+------------+-------------------------------------+
 | I2C       | on-chip    | i2c                                 |
 +-----------+------------+-------------------------------------+
+| SDHC      | on-chip    | disk access                         |
++-----------+------------+-------------------------------------+
 | SPI       | on-chip    | spi                                 |
 +-----------+------------+-------------------------------------+
 | UART      | on-chip    | serial port-polling;                |
 |           |            | serial port-interrupt               |
 +-----------+------------+-------------------------------------+
 | ENET      | on-chip    | ethernet                            |
++-----------+------------+-------------------------------------+
+| USB       | on-chip    | USB device                          |
 +-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
@@ -135,9 +139,13 @@ The MIMXRT1050 SoC has five pairs of pinmux/gpio controllers.
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_03 | LPSPI3_PCS0     | SPI                       |
 +---------------+-----------------+---------------------------+
+| GPIO_AD_B0_05 | GPIO            | SD Card                   |
++---------------+-----------------+---------------------------+
 | GPIO_AD_B0_09 | GPIO/ENET_RST   | LED                       |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_10 | GPIO/ENET_INT   | GPIO/Ethernet             |
++---------------+-----------------+---------------------------+
+| GPIO_AD_B0_11 | GPIO            | Touch Interrupt           |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_12 | LPUART1_TX      | UART Console              |
 +---------------+-----------------+---------------------------+
@@ -209,6 +217,10 @@ The MIMXRT1050 SoC has five pairs of pinmux/gpio controllers.
 +---------------+-----------------+---------------------------+
 | GPIO_B1_11    | ENET_RX_ER      | Ethernet                  |
 +---------------+-----------------+---------------------------+
+| GPIO_B1_12    | GPIO            | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_B1_14    | USDHC1_VSELECT  | SD Card                   |
++---------------+-----------------+---------------------------+
 | GPIO_B1_15    | BACKLIGHT_CTL   | LCD Display               |
 +---------------+-----------------+---------------------------+
 | GPIO_EMC_40   | ENET_MDC        | Ethernet                  |
@@ -218,6 +230,18 @@ The MIMXRT1050 SoC has five pairs of pinmux/gpio controllers.
 | GPIO_AD_B0_09 | ENET_RST        | Ethernet                  |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_10 | ENET_INT        | Ethernet                  |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_00 | USDHC1_CMD      | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_01 | USDHC1_CLK      | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_02 | USDHC1_DATA0    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_03 | USDHC1_DATA1    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_04 | USDHC1_DATA2    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_05 | USDHC1_DATA3    | SD Card                   |
 +---------------+-----------------+---------------------------+
 
 System Clock
@@ -233,43 +257,133 @@ The MIMXRT1050 SoC has eight UARTs. ``LPUART1`` is configured for the console,
 ``LPUART3`` for the Bluetooth Host Controller Interface (BT HCI), and the
 remaining are not used.
 
+USB
+===
+
+The RT1050 SoC has two USB OTG (USBOTG) controllers that supports both
+device and host functions through its micro USB connectors.
+Only USB device function is supported in Zephyr at the moment.
+
 Programming and Debugging
 *************************
 
-The MIMXRT1050-EVK includes the :ref:`nxp_opensda` serial and debug adapter
-built into the board to provide debugging, flash programming, and serial
-communication over USB.
+Build and flash applications as usual (see :ref:`build_an_application` and
+:ref:`application_run` for more details).
 
-To use the Segger J-Link tools with OpenSDA, follow the instructions in the
-:ref:`nxp_opensda_jlink` page using the `Segger J-Link OpenSDA V2.1 Firmware`_.
-The Segger J-Link tools are the default for this board, therefore it is not
-necessary to set ``OPENSDA_FW=jlink`` explicitly when you invoke ``make
-debug``.
+Configuring a Debug Probe
+=========================
 
-With these mechanisms, applications for the ``mimxrt1050_evk`` board
-configuration can be built and debugged in the usual way (see
-:ref:`build_an_application` and :ref:`application_run` for more details).
+A debug probe is used for both flashing and debugging the board. This board is
+configured by default to use the :ref:`opensda-daplink-onboard-debug-probe`,
+however the :ref:`pyocd-debug-host-tools` do not yet support programming the
+external flashes on this board so you must reconfigure the board for one of the
+following debug probes instead.
 
-The pyOCD tools do not yet support this SoC.
+Option 1: :ref:`opensda-jlink-onboard-debug-probe` (Recommended)
+----------------------------------------------------------------
+
+Install the :ref:`jlink-debug-host-tools` and make sure they are in your search
+path.
+
+Follow the instructions in :ref:`opensda-jlink-onboard-debug-probe` to program
+the `OpenSDA J-Link MIMXRT1050-EVK-Hyperflash Firmware`_. Check that jumpers
+J32 and J33 are **on** (they are on by default when boards ship from the
+factory) to ensure SWD signals are connected to the OpenSDA microcontroller.
+
+Option 2: :ref:`jlink-external-debug-probe`
+-------------------------------------------
+
+Install the :ref:`jlink-debug-host-tools` and make sure they are in your search
+path.
+
+Attach a J-Link 20-pin connector to J21. Check that jumpers J32 and J33 are
+**off** (they are on by default when boards ship from the factory) to ensure
+SWD signals are disconnected from the OpenSDA microcontroller.
+
+Configuring a Console
+=====================
+
+Regardless of your choice in debug probe, we will use the OpenSDA
+microcontroller as a usb-to-serial adapter for the serial console. Check that
+jumpers J30 and J31 are **on** (they are on by default when boards ship from
+the factory) to connect UART signals to the OpenSDA microcontroller.
+
+Connect a USB cable from your PC to J28.
+
+Use the following settings with your serial terminal of choice (minicom, putty,
+etc.):
+
+- Speed: 115200
+- Data: 8 bits
+- Parity: None
+- Stop bits: 1
 
 Flashing
 ========
 
-The Segger J-Link firmware does not support command line flashing, therefore
-the usual ``flash`` build system target is not supported.
+Here is an example for the :ref:`hello_world` application.
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/hello_world
+   :board: mimxrt1050_evk
+   :goals: flash
+
+Open a serial terminal, reset the board (press the SW4 button), and you should
+see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! mimxrt1050_evk
 
 Debugging
 =========
 
-This example uses the :ref:`hello_world` sample with the
-:ref:`nxp_opensda_jlink` tools. Run the following to build your Zephyr
-application, invoke the J-Link GDB server, attach a GDB client, and program
-your Zephyr application to flash. It will leave you at a GDB prompt.
+Here is an example for the :ref:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :board: mimxrt1050_evk
    :goals: debug
+
+Open a serial terminal, step through the application in your debugger, and you
+should see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! mimxrt1050_evk
+
+Troubleshooting
+===============
+
+If the debug probe fails to connect with the following error, it's possible
+that the boot header in HyperFlash is invalid or corrupted. The boot header is
+configured by :option:`CONFIG_NXP_IMX_RT_BOOT_HEADER`.
+
+.. code-block:: console
+
+   Remote debugging using :2331
+   Remote communication error.  Target disconnected.: Connection reset by peer.
+   "monitor" command not supported by this target.
+   "monitor" command not supported by this target.
+   You can't do that when your target is `exec'
+   (gdb) Could not connect to target.
+   Please check power, connection and settings.
+
+You can fix it by erasing and reprogramming the HyperFlash with the following
+steps:
+
+#. Set the SW7 DIP switches to ON-ON-ON-OFF to prevent booting from HyperFlash.
+
+#. Reset by pressing SW4
+
+#. Run ``west debug`` or ``west flash`` again with a known working Zephyr
+   application.
+
+#. Set the SW7 DIP switches to OFF-ON-ON-OFF to boot from HyperFlash.
+
+#. Reset by pressing SW4
 
 Board Revisions
 ***************
@@ -303,11 +417,8 @@ Current Zephyr build supports the new MIMXRT1050-EVKB
 .. _i.MX RT1050 Reference Manual:
    https://www.nxp.com/docs/en/reference-manual/IMXRT1050RM.pdf
 
-.. _DAPLink FRDM-K64F Firmware:
-   http://www.nxp.com/assets/downloads/data/en/ide-debug-compile-build-tools/OpenSDAv2.2_DAPLink_frdmk64f_rev0242.zip
-
-.. _Segger J-Link OpenSDA V2.1 Firmware:
-   https://www.segger.com/downloads/jlink/OpenSDA_V2_1.bin
+.. _OpenSDA J-Link MIMXRT1050-EVK-Hyperflash Firmware:
+   https://www.segger.com/downloads/jlink/OpenSDA_MIMXRT1050-EVK-Hyperflash
 
 .. _NXP i.MXRT1050 A0 to A1 Migration Guide:
    https://www.nxp.com/docs/en/nxp/application-notes/AN12146.pdf

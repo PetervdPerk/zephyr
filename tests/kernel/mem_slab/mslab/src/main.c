@@ -199,7 +199,9 @@ void test_slab_free_all_blocks(void **p)
  *
  * @ingroup kernel_memory_slab_tests
  *
- * @details This routine calls test_slab_get_all_blocks() to get all
+ * @details Verify that system allows for the definitions of boot-time
+ * memory regions.
+ * This routine calls test_slab_get_all_blocks() to get all
  * memory blocks from the map and calls test_slab_free_all_blocks()
  * to free all memory blocks. It also tries to wait (with and without
  * timeout) for a memory block.
@@ -243,13 +245,13 @@ void test_mslab(void)
 	TC_PRINT("(3) - Further allocation results in  timeout "
 		 "in <%s>\n", __func__);
 
-	ret_value = k_mem_slab_alloc(&map_lgblks, &b, 20);
+	ret_value = k_mem_slab_alloc(&map_lgblks, &b, K_MSEC(20));
 	zassert_equal(-EAGAIN, ret_value,
 		      "Failed k_mem_slab_alloc, retValue %d\n", ret_value);
 
 	TC_PRINT("%s: start to wait for block\n", __func__);
 	k_sem_give(&SEM_REGRESSDONE);    /* Allow helper thread to run part 4 */
-	ret_value = k_mem_slab_alloc(&map_lgblks, &b, 50);
+	ret_value = k_mem_slab_alloc(&map_lgblks, &b, K_MSEC(50));
 	zassert_equal(0, ret_value,
 		      "Failed k_mem_slab_alloc, ret_value %d\n", ret_value);
 
@@ -275,12 +277,12 @@ void test_mslab(void)
 }
 
 K_THREAD_DEFINE(HELPER, STACKSIZE, helper_thread, NULL, NULL, NULL,
-		7, 0, K_NO_WAIT);
+		7, 0, 0);
 
 /*test case main entry*/
 void test_main(void)
 {
 	ztest_test_suite(memory_slab,
-			 ztest_unit_test(test_mslab));
+			 ztest_1cpu_unit_test(test_mslab));
 	ztest_run_test_suite(memory_slab);
 }

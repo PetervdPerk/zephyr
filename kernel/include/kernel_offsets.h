@@ -10,18 +10,18 @@
 
 #include <syscall_list.h>
 
+/* All of this is build time magic, but LCOV gets confused. Disable coverage
+ * for this whole file.
+ *
+ * LCOV_EXCL_START
+ */
+
 /*
  * The final link step uses the symbol _OffsetAbsSyms to force the linkage of
  * offsets.o into the ELF image.
  */
 
 GEN_ABS_SYM_BEGIN(_OffsetAbsSyms)
-
-#ifndef CONFIG_SMP
-GEN_OFFSET_SYM(_kernel_t, current);
-GEN_OFFSET_SYM(_kernel_t, nested);
-GEN_OFFSET_SYM(_kernel_t, irq_stack);
-#endif
 
 GEN_OFFSET_SYM(_cpu_t, current);
 GEN_OFFSET_SYM(_cpu_t, nested);
@@ -31,18 +31,17 @@ GEN_OFFSET_SYM(_cpu_t, irq_stack);
 GEN_OFFSET_SYM(_kernel_t, threads);
 #endif
 
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
+#ifdef CONFIG_PM
 GEN_OFFSET_SYM(_kernel_t, idle);
 #endif
 
 GEN_OFFSET_SYM(_kernel_t, ready_q);
-GEN_OFFSET_SYM(_kernel_t, arch);
 
 #ifndef CONFIG_SMP
 GEN_OFFSET_SYM(_ready_q_t, cache);
 #endif
 
-#ifdef CONFIG_FP_SHARING
+#ifdef CONFIG_FPU_SHARING
 GEN_OFFSET_SYM(_kernel_t, current_fp);
 #endif
 
@@ -56,9 +55,12 @@ GEN_OFFSET_SYM(_thread_base_t, preempt);
 GEN_OFFSET_SYM(_thread_base_t, swap_data);
 
 GEN_OFFSET_SYM(_thread_t, base);
-GEN_OFFSET_SYM(_thread_t, caller_saved);
 GEN_OFFSET_SYM(_thread_t, callee_saved);
 GEN_OFFSET_SYM(_thread_t, arch);
+
+#ifdef CONFIG_USE_SWITCH
+GEN_OFFSET_SYM(_thread_t, switch_handle);
+#endif
 
 #ifdef CONFIG_THREAD_STACK_INFO
 GEN_OFFSET_SYM(_thread_stack_info_t, start);
@@ -75,9 +77,18 @@ GEN_OFFSET_SYM(_thread_t, next_thread);
 GEN_OFFSET_SYM(_thread_t, custom_data);
 #endif
 
+#ifdef CONFIG_THREAD_LOCAL_STORAGE
+GEN_OFFSET_SYM(_thread_t, tls);
+#endif
+
 GEN_ABSOLUTE_SYM(K_THREAD_SIZEOF, sizeof(struct k_thread));
 
 /* size of the device structure. Used by linker scripts */
-GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_SIZEOF, sizeof(struct device));
+GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_SIZEOF, sizeof(const struct device));
 
+/* member offsets in the device structure. Used in image post-processing */
+GEN_ABSOLUTE_SYM(_DEVICE_STRUCT_HANDLES_OFFSET,
+		 offsetof(struct device, handles));
+
+/* LCOV_EXCL_STOP */
 #endif /* ZEPHYR_KERNEL_INCLUDE_KERNEL_OFFSETS_H_ */

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # These functions can be used to generate a CFB font include file from
 # a TrueType/OpenType font file or an image file.
 function(generate_cfb_font
@@ -11,8 +13,10 @@ function(generate_cfb_font
     COMMAND
     ${PYTHON_EXECUTABLE}
     ${ZEPHYR_BASE}/scripts/gen_cfb_font_header.py
+    --zephyr-base ${ZEPHYR_BASE}
     --input ${input_file}
     --output ${output_file}
+    --bindir ${CMAKE_BINARY_DIR}
     --width ${width}
     --height ${height}
     ${ARGN} # Extra arguments are passed to gen_cfb_font_header.py

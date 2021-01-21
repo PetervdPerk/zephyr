@@ -1,5 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+
 if("${ARCH}" STREQUAL "x86")
   set_ifndef(QEMU_binary_suffix i386)
+elseif(DEFINED QEMU_ARCH)
+  set_ifndef(QEMU_binary_suffix ${QEMU_ARCH})
 else()
   set_ifndef(QEMU_binary_suffix ${ARCH})
 endif()
@@ -31,37 +35,43 @@ else()
   list(APPEND QEMU_FLAGS qemu${QEMU_INSTANCE}.pid)
 endif()
 
-# We can set "default" value for QEMU_PTY & QEMU_PIPE on cmake invocation.
+# Set up chardev for console.
 if(QEMU_PTY)
-  # Send console output to a pseudo-tty, used for running automated tests
-  set(CMAKE_QEMU_SERIAL0 pty)
+  # Redirect console to a pseudo-tty, used for running automated tests.
+  list(APPEND QEMU_FLAGS -chardev pty,id=con,mux=on)
+elseif(QEMU_PIPE)
+  # Redirect console to a pipe, used for running automated tests.
+  list(APPEND QEMU_FLAGS -chardev pipe,id=con,mux=on,path=${QEMU_PIPE})
 else()
-  if(QEMU_PIPE)
-    # Send console output to a pipe, used for running automated tests
-    set(CMAKE_QEMU_SERIAL0 pipe:${QEMU_PIPE})
-  else()
-    set(CMAKE_QEMU_SERIAL0 mon:stdio)
-  endif()
+  # Redirect console to stdio, used for manual debugging.
+  list(APPEND QEMU_FLAGS -chardev stdio,id=con,mux=on)
 endif()
 
-# But also can set QEMU_PTY & QEMU_PIPE on *make* (not cmake) invocation,
-# like it was before cmake.
-if(${CMAKE_GENERATOR} STREQUAL "Unix Makefiles")
+# Connect main serial port to the console chardev.
+list(APPEND QEMU_FLAGS -serial chardev:con)
+
+# Connect semihosting console to the console chardev if configured.
+if(CONFIG_SEMIHOST_CONSOLE)
   list(APPEND QEMU_FLAGS
-    -serial
-    \${if \${QEMU_PTY}, pty, \${if \${QEMU_PIPE}, pipe:\${QEMU_PIPE}, ${CMAKE_QEMU_SERIAL0}}}
-    # NB: \$ is not supported by Ninja
+    -semihosting-config enable=on,target=auto,chardev=con
     )
-else()
+endif()
+
+# Connect monitor to the console chardev.
+list(APPEND QEMU_FLAGS -mon chardev=con,mode=readline)
+
+if(CONFIG_QEMU_ICOUNT)
   list(APPEND QEMU_FLAGS
-    -serial
-    ${CMAKE_QEMU_SERIAL0}
-    )
+	  -icount shift=${CONFIG_QEMU_ICOUNT_SHIFT},align=off,sleep=off
+	  -rtc clock=vm)
 endif()
 
 # Add a BT serial device when building for bluetooth, unless the
 # application explicitly opts out with NO_QEMU_SERIAL_BT_SERVER.
 if(CONFIG_BT)
+  if(CONFIG_BT_NO_DRIVER)
+      set(NO_QEMU_SERIAL_BT_SERVER 1)
+  endif()
   if(NOT NO_QEMU_SERIAL_BT_SERVER)
     list(APPEND QEMU_FLAGS -serial unix:/tmp/bt-server-bredr)
   endif()
@@ -70,12 +80,15 @@ endif()
 # If we are running a networking application in QEMU, then set proper
 # QEMU variables. This also allows two QEMUs to be hooked together and
 # pass data between them. The QEMU flags are not set for standalone
-# tests defined by CONFIG_NET_TEST.
+# tests defined by CONFIG_NET_TEST. For PPP, the serial port file is
+# not available if we run unit tests which define CONFIG_NET_TEST.
 if(CONFIG_NETWORKING)
   if(CONFIG_NET_QEMU_SLIP)
     if((CONFIG_NET_SLIP_TAP) OR (CONFIG_IEEE802154_UPIPE))
       set(QEMU_NET_STACK 1)
     endif()
+  elseif((CONFIG_NET_QEMU_PPP) AND NOT (CONFIG_NET_TEST))
+      set(QEMU_NET_STACK 1)
   endif()
 endif()
 
@@ -138,15 +151,28 @@ elseif(QEMU_NET_STACK)
       # appending the instance name to the pid file we can easily run more
       # instances of the same sample.
 
-      if(${CMAKE_GENERATOR} STREQUAL "Unix Makefiles")
-        set(tmp_file unix:/tmp/slip.sock\${QEMU_INSTANCE})
+      if(CONFIG_NET_QEMU_PPP)
+	if(${CMAKE_GENERATOR} STREQUAL "Unix Makefiles")
+	  set(ppp_path unix:/tmp/ppp\${QEMU_INSTANCE})
+	else()
+	  set(ppp_path unix:/tmp/ppp${QEMU_INSTANCE})
+	endif()
+
+	list(APPEND MORE_FLAGS_FOR_${target}
+          -serial ${ppp_path}
+          )
       else()
-        set(tmp_file unix:/tmp/slip.sock${QEMU_INSTANCE})
+	if(${CMAKE_GENERATOR} STREQUAL "Unix Makefiles")
+          set(tmp_file unix:/tmp/slip.sock\${QEMU_INSTANCE})
+	else()
+          set(tmp_file unix:/tmp/slip.sock${QEMU_INSTANCE})
+	endif()
+
+	list(APPEND MORE_FLAGS_FOR_${target}
+          -serial ${tmp_file}
+          )
       endif()
 
-      list(APPEND MORE_FLAGS_FOR_${target}
-        -serial ${tmp_file}
-        )
     endif()
   endforeach()
 
@@ -200,34 +226,93 @@ elseif(QEMU_NET_STACK)
     set_ifndef(NET_TOOLS ${ZEPHYR_BASE}/../net-tools) # Default if not set
 
     list(APPEND PRE_QEMU_COMMANDS_FOR_server
-      COMMAND ${NET_TOOLS}/monitor_15_4
-  ${PCAP}
-  /tmp/ip-stack-server
+      COMMAND
+      #This command is run in the background using '&'. This prevents
+      #chaining other commands with '&&'. The command is enclosed in '{}'
+      #to fix this.
+      {
+      ${NET_TOOLS}/monitor_15_4
+      ${PCAP}
+      /tmp/ip-stack-server
       /tmp/ip-stack-client
       > /dev/null &
+      }
       # TODO: Support cleanup of the monitor_15_4 process
       )
   endif()
 endif(QEMU_PIPE_STACK)
 
-if(CONFIG_X86_IAMCU)
-  list(APPEND PRE_QEMU_COMMANDS
+if(CONFIG_X86_64)
+  # QEMU doesn't like 64-bit ELF files. Since we don't use any >4GB
+  # addresses, converting it to 32-bit is safe enough for emulation.
+  add_custom_target(qemu_image_target
     COMMAND
-    ${PYTHON_EXECUTABLE}
-    ${ZEPHYR_BASE}/scripts/qemu-machine-hack.py
+    ${CMAKE_OBJCOPY}
+    -O elf32-i386
     $<TARGET_FILE:${logical_target_for_zephyr_elf}>
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
+    DEPENDS ${logical_target_for_zephyr_elf}
+    )
+
+  # Split the 'locore' and 'main' memory regions into separate executable
+  # images and specify the 'locore' as the boot kernel, in order to prevent
+  # the QEMU direct multiboot kernel loader from overwriting the BIOS and
+  # option ROM areas located in between the two memory regions.
+  # (for more details, refer to the issue zephyrproject-rtos/sdk-ng#168)
+  add_custom_target(qemu_locore_image_target
+    COMMAND
+    ${CMAKE_OBJCOPY}
+    -j .locore
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu-locore.elf
+    2>&1 | grep -iv \"empty loadable segment detected\" || true
+    DEPENDS qemu_image_target
+    )
+
+  add_custom_target(qemu_main_image_target
+    COMMAND
+    ${CMAKE_OBJCOPY}
+    -R .locore
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu-main.elf
+    2>&1 | grep -iv \"empty loadable segment detected\" || true
+    DEPENDS qemu_image_target
+    )
+
+  add_custom_target(
+    qemu_kernel_target
+    DEPENDS qemu_locore_image_target qemu_main_image_target
+    )
+
+  set(QEMU_KERNEL_FILE "${ZEPHYR_BINARY_DIR}/zephyr-qemu-locore.elf")
+
+  list(APPEND QEMU_EXTRA_FLAGS
+    "-device;loader,file=${ZEPHYR_BINARY_DIR}/zephyr-qemu-main.elf"
     )
 endif()
 
-if(CONFIG_X86_64)
-  set(QEMU_KERNEL_FILE "${CMAKE_BINARY_DIR}/zephyr-qemu.elf")
+if(CONFIG_IVSHMEM)
+  if(CONFIG_IVSHMEM_DOORBELL)
+    list(APPEND QEMU_FLAGS
+      -device ivshmem-doorbell,vectors=${CONFIG_IVSHMEM_MSI_X_VECTORS},chardev=ivshmem
+      -chardev socket,path=/tmp/ivshmem_socket,id=ivshmem
+    )
+  else()
+    list(APPEND QEMU_FLAGS
+      -device ivshmem-plain,memdev=hostmem
+      -object memory-backend-file,size=${CONFIG_QEMU_IVSHMEM_PLAIN_MEM_SIZE}M,share,mem-path=/dev/shm/ivshmem,id=hostmem
+    )
+  endif()
 endif()
 
 if(NOT QEMU_PIPE)
   set(QEMU_PIPE_COMMENT "\nTo exit from QEMU enter: 'CTRL+a, x'\n")
 endif()
 
-if(CONFIG_SMP)
+# Don't just test CONFIG_SMP, there is at least one test of the lower
+# level multiprocessor API that wants an auxiliary CPU but doesn't
+# want SMP using it.
+if(NOT CONFIG_MP_NUM_CPUS MATCHES "1")
   list(APPEND QEMU_SMP_FLAGS -smp cpus=${CONFIG_MP_NUM_CPUS})
 endif()
 
@@ -246,6 +331,8 @@ if(DEFINED QEMU_KERNEL_FILE)
   set(QEMU_KERNEL_OPTION "-kernel;${QEMU_KERNEL_FILE}")
 elseif(NOT DEFINED QEMU_KERNEL_OPTION)
   set(QEMU_KERNEL_OPTION "-kernel;$<TARGET_FILE:${logical_target_for_zephyr_elf}>")
+elseif(DEFINED QEMU_KERNEL_OPTION)
+  string(CONFIGURE "${QEMU_KERNEL_OPTION}" QEMU_KERNEL_OPTION)
 endif()
 
 foreach(target ${qemu_targets})

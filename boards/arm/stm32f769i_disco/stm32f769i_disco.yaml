@@ -1,12 +1,12 @@
 identifier: stm32f769i_disco
-name: STM32F769IDISCOVERY
+name: ST STM32F769I Discovery
 type: mcu
 arch: arm
 toolchain:
   - zephyr
   - gnuarmemb
   - xtools
-ram: 512
+ram: 384
 flash: 2048
 supported:
   - arduino_i2c

@@ -1,5 +1,5 @@
 identifier: nucleo_f411re
-name: NUCLEO-F411RE
+name: ST Nucleo F411RE
 type: mcu
 arch: arm
 toolchain:
@@ -7,8 +7,10 @@ toolchain:
   - gnuarmemb
   - xtools
 supported:
+  - arduino_gpio
   - arduino_i2c
-  - rtc
+  - arduino_i2s
+  - arduino_spi
   - counter
   - gpio
   - spi

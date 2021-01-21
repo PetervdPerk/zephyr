@@ -1,5 +1,5 @@
 tests:
-  test:
+  drivers.dma.loop_transfer:
     depends_on: dma
     tags: drivers dma
     harness: console

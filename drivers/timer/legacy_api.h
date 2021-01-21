@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2018 Intel Corporation
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #ifndef ZEPHYR_LEGACY_SET_TIME_H__
 #define ZEPHYR_LEGACY_SET_TIME_H__
 
@@ -10,28 +15,28 @@
  */
 
 #ifdef CONFIG_TICKLESS_IDLE
-void _timer_idle_enter(s32_t ticks);
+void z_timer_idle_enter(int32_t ticks);
 void z_clock_idle_exit(void);
 #endif
 
 #ifdef CONFIG_TICKLESS_KERNEL
-void _set_time(u32_t time);
-extern u32_t _get_program_time(void);
-extern u32_t _get_remaining_program_time(void);
-extern u32_t _get_elapsed_program_time(void);
+void z_set_time(uint32_t time);
+extern uint32_t z_get_program_time(void);
+extern uint32_t z_get_remaining_program_time(void);
+extern uint32_t z_get_elapsed_program_time(void);
 #endif
 
-extern u64_t z_clock_uptime(void);
+extern uint64_t z_clock_uptime(void);
 
-void z_clock_set_timeout(s32_t ticks, bool idle)
+void z_clock_set_timeout(int32_t ticks, bool idle)
 {
-#ifdef CONFIG_TICKLESS_KERNEL
+#if defined(CONFIG_TICKLESS_IDLE) && defined(CONFIG_TICKLESS_KERNEL)
 	if (idle) {
-		_timer_idle_enter(ticks);
+		z_timer_idle_enter(ticks);
 	} else {
-		_set_time(ticks == K_FOREVER ? 0 : ticks);
+		z_set_time(ticks == K_TICKS_FOREVER ? 0 : ticks);
 	}
-#endif
+#endif	/* TICKLESS_IDLE && TICKLESS_KERNEL */
 }
 
 /* The old driver "now" API would return a full uptime value.  The new
@@ -39,18 +44,18 @@ void z_clock_set_timeout(s32_t ticks, bool idle)
  * call.  Implement the new call in terms of the old one on legacy
  * drivers by keeping (yet another) uptime value locally.
  */
-static u32_t driver_uptime;
+static uint32_t driver_uptime;
 
-u32_t z_clock_elapsed(void)
+uint32_t z_clock_elapsed(void)
 {
-#ifdef TICKLESS_KERNEL
-	return (u32_t)(z_clock_uptime() - driver_uptime);
+#ifdef CONFIG_TICKLESS_KERNEL
+	return (uint32_t)(z_clock_uptime() - driver_uptime);
 #else
 	return 0;
 #endif
 }
 
-static void wrapped_announce(s32_t ticks)
+static void wrapped_announce(int32_t ticks)
 {
 	driver_uptime += ticks;
 	z_clock_announce(ticks);
@@ -60,7 +65,7 @@ static void wrapped_announce(s32_t ticks)
 
 #define _sys_clock_always_on (0)
 
-static inline void z_tick_set(s64_t val)
+static inline void z_tick_set(int64_t val)
 {
 	/* noop with current kernel code, use z_clock_announce() */
 	ARG_UNUSED(val);

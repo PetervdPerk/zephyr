@@ -1,58 +1,58 @@
 .. _installation_linux:
 
-Development Environment Setup on Linux
-######################################
+Install Linux Host Dependencies
+###############################
 
-.. important::
+Documentation is available for these Linux distributions:
 
-   This section only describes OS-specific setup instructions; it is the first step in the
-   complete Zephyr :ref:`getting_started`.
-
-This section describes how to set up a Zephyr development environment on the
-following Linux distributions:
-
-* Ubuntu 16.04 LTS or 18.04 LTS 64-bit
-* Fedora 28 64-bit
+* Ubuntu
+* Fedora
 * Clear Linux
 * Arch Linux
 
-Where needed, instructions are given which only apply to specific Linux
-distributions.
+For distributions that are not based on rolling releases, some of the
+requirements and dependencies may not be met by your package manager. In that
+case please follow the additional instructions that are provided to find
+software from sources other than the package manager.
+
+.. note:: If you're working behind a corporate firewall, you'll likely
+   need to configure a proxy for accessing the internet, if you haven't
+   done so already.  While some tools use the environment variables
+   ``http_proxy`` and ``https_proxy`` to get their proxy settings, some
+   use their own configuration files, most notably ``apt`` and
+   ``git``.
 
 Update Your Operating System
 ****************************
 
-Ensure your host system is up to date before proceeding.
+Ensure your host system is up to date.
 
-On Ubuntu:
+.. tabs::
 
-.. code-block:: console
+   .. group-tab:: Ubuntu
 
-   sudo apt-get update
-   sudo apt-get upgrade
+      .. code-block:: console
 
-On Fedora:
+         sudo apt-get update
+         sudo apt-get upgrade
 
-.. code-block:: console
+   .. group-tab:: Fedora
 
-   sudo dnf upgrade
+      .. code-block:: console
 
-Note that having a newer version available for an installed package
-(as reported by ``dnf check-update``) does not imply a subsequent
-``dnf upgrade`` will install it, because it must also ensure dependencies
-and other restrictions are satisfied.
+         sudo dnf upgrade
 
-On Clear Linux:
+   .. group-tab:: Clear Linux
 
-.. code-block:: console
+      .. code-block:: console
 
-   sudo swupd update
+         sudo swupd update
 
-On Arch Linux:
+   .. group-tab:: Arch Linux
 
-.. code-block:: console
+      .. code-block:: console
 
-   sudo pacman -Syu
+         sudo pacman -Syu
 
 .. _linux_requirements:
 
@@ -67,55 +67,85 @@ Install Requirements and Dependencies
    introduction of LaTeX->PDF support for the docs, as the texlive footprint is
    massive and not needed by users not building PDF documentation.)
 
-Install the following packages using your system's package manager. Note that
-both Ninja and Make are installed; you may prefer only to install one.
+Note that both Ninja and Make are installed with these instructions; you only
+need one.
 
-On Ubuntu:
+.. tabs::
 
-.. code-block:: console
+   .. group-tab:: Ubuntu
 
-   sudo apt-get install --no-install-recommends git cmake ninja-build gperf \
-     ccache dfu-util device-tree-compiler wget \
-     python3-pip python3-setuptools python3-wheel xz-utils file make gcc \
-     gcc-multilib
+      .. code-block:: console
 
-On Fedora:
+         sudo apt-get install --no-install-recommends git cmake ninja-build gperf \
+           ccache dfu-util device-tree-compiler wget \
+           python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file \
+           make gcc gcc-multilib g++-multilib libsdl2-dev
 
-.. code-block:: console
+   .. group-tab:: Fedora
 
+      .. code-block:: console
 
-   sudo dnf group install "Development Tools" "C Development Tools and Libraries"
-   dnf install git cmake ninja-build gperf ccache dfu-util dtc wget \
-     python3-pip xz file glibc-devel.i686 libstdc++-devel.i686
+         sudo dnf group install "Development Tools" "C Development Tools and Libraries"
+         dnf install git cmake ninja-build gperf ccache dfu-util dtc wget \
+           python3-pip python3-tkinter xz file glibc-devel.i686 libstdc++-devel.i686 \
+           SDL2-devel
 
-On Clear Linux:
+   .. group-tab:: Clear Linux
 
-.. code-block:: console
+      .. code-block:: console
 
-   sudo swupd bundle-add c-basic dev-utils dfu-util dtc \
-     os-core-dev python-basic python3-basic
+         sudo swupd bundle-add c-basic dev-utils dfu-util dtc \
+           os-core-dev python-basic python3-basic python3-tcl
 
-On Arch:
+      The Clear Linux focus is on *native* performance and security and not
+      cross-compilation. For that reason it uniquely exports by default to the
+      :ref:`environment <env_vars>` of all users a list of compiler and linker
+      flags. Zephyr's CMake build system will either warn or fail because of
+      these. To clear the C/C++ flags among these and fix the Zephyr build, run
+      the following command as root then log out and back in:
 
-.. code-block:: console
+      .. code-block:: console
 
-   sudo pacman -S git cmake ninja gperf ccache dfu-util dtc wget \
-       python-pip python-setuptools python-wheel xz file make
+         echo 'unset CFLAGS CXXFLAGS' >> /etc/profile.d/unset_cflags.sh
 
-.. important::
-   Zephyr requires a recent version of CMake. Read through
-   the rest of the section below to verify the version you have
-   installed is recent enough to build Zephyr.
+      Note this command unsets the C/C++ flags for *all users on the
+      system*. Each Linux distribution has a unique, relatively complex and
+      potentially evolving sequence of bash initialization files sourcing each
+      other and Clear Linux is no exception. If you need a more flexible
+      solution, start by looking at the logic in
+      ``/usr/share/defaults/etc/profile``.
 
-CMake version 3.13.1 or higher is required. Check what version you have by using
-``cmake --version``. If you have an older version, there are several ways
+   .. group-tab:: Arch Linux
+
+      .. code-block:: console
+
+         sudo pacman -S git cmake ninja gperf ccache dfu-util dtc wget \
+             python-pip python-setuptools python-wheel tk xz file make
+
+CMake
+=====
+
+CMake version 3.13.1 or higher is required. Check what version you have by
+using ``cmake --version``. If you have an older version, there are several ways
 of obtaining a more recent one:
 
-* Use ``pip``:
+* On Ubuntu, you can follow the instructions for adding the
+  `kitware third-party apt repository <https://apt.kitware.com/>`_
+  to get an updated version of cmake using apt.
+
+* Download and install a packaged cmake from the CMake project site.
+  (Note this won't uninstall the previous version of cmake.)
 
   .. code-block:: console
 
-     pip3 install --user cmake
+     cd ~
+     wget https://github.com/Kitware/CMake/releases/download/v3.15.3/cmake-3.15.3-Linux-x86_64.sh
+     chmod +x cmake-3.15.3-Linux-x86_64.sh
+     sudo ./cmake-3.15.3-Linux-x86_64.sh --skip-license --prefix=/usr/local
+     hash -r
+
+  The ``hash -r`` command may be necessary if the installation script
+  put cmake into a new location on your PATH.
 
 * Download and install from the pre-built binaries provided by the CMake
   project itself in the `CMake Downloads`_ page.
@@ -128,35 +158,67 @@ of obtaining a more recent one:
      yes | sh cmake-3.13.1-Linux-x86_64.sh | cat
      echo "export PATH=$PWD/cmake-3.13.1-Linux-x86_64/bin:\$PATH" >> $HOME/.zephyrrc
 
+* Use ``pip3``:
+
+  .. code-block:: console
+
+     pip3 install --user cmake
+
+  Note this won't uninstall the previous version of cmake and will
+  install the new cmake into your ~/.local/bin folder so
+  you'll need to add ~/.local/bin to your PATH.  (See :ref:`python-pip`
+  for details.)
+
 * Check your distribution's beta or unstable release package library for an
   update.
 
-.. note::
-   If you have installed a recent version of CMake using one of the approaches
-   listed above, you might want to uninstall the one provided by your
-   distribution's package manager (``apt``, ``dnf``, ``swupd``, ``pacman``,
-   etc.) in order to avoid version conflicts.
+* On Ubuntu you can also use snap to get the latest version available:
+
+  .. code-block:: console
+
+     sudo snap install cmake
+
+After updating cmake, verify that the newly installed cmake is found
+using ``cmake --version``.
+You might also want to uninstall the CMake provided by your package manager to
+avoid conflicts.  (Use ``whereis cmake`` to find other installed
+versions.)
+
+DTC (Device Tree Compiler)
+==========================
+
+A recent DTC version (1.4.6 or higher) is required. Check what version you
+have by using ``dtc --version``. If you have an older version, either install a
+more recent one by building from source, or use the one that is bundled in
+the :ref:`Zephyr SDK <zephyr_sdk>` by installing it.
+
+Python
+======
+
+Python 3.6 or later is required. Check what version you have by using ``python3
+--version``.
+
+If you have an older version, you will need to install a more recent Python 3.
+You can build from source, or use a backport from your distribution's package
+manager channels if one is available. Isolating this Python in a virtual
+environment is recommended to avoid interfering with your system Python.
+
+.. _pyenv: https://github.com/pyenv/pyenv
 
 .. _zephyr_sdk:
 
 Install the Zephyr Software Development Kit (SDK)
 *************************************************
 
-.. note::
+Use of the Zephyr SDK is optional, but recommended. Some of the dependencies
+installed above are only needed for installing the SDK.
 
-   Use of the Zephyr SDK is optional, but recommended. Some of the requirements
-   and dependencies in the previous section are only needed for installing the
-   SDK.
-
-Zephyr's :abbr:`SDK (Software Development Kit)` contains all necessary tools
-and cross-compilers needed to build Zephyr on all supported
-architectures. Additionally, it includes host tools such as custom QEMU binaries
-and a host compiler for building host tools if necessary. The SDK supports the
+Zephyr's :abbr:`SDK (Software Development Kit)` contains all necessary tools to
+build Zephyr on all supported architectures. Additionally, it includes host
+tools such as custom QEMU binaries and a host compiler. The SDK supports the
 following target architectures:
 
 * :abbr:`X86 (Intel Architecture 32 bits)`
-
-* :abbr:`X86 IAMCU ABI (Intel Architecture 32 bits IAMCU ABI)`
 
 * :abbr:`Arm (Advanced RISC Machine)`
 
@@ -164,46 +226,69 @@ following target architectures:
 
 * :abbr:`Nios II`
 
-* :abbr:`Xtensa`
-
 * :abbr:`RISC-V`
 
-Follow these steps to install the SDK on your Linux host system.
+* :abbr:`SPARC`
 
-#. Download the latest SDK as a self-extracting installation binary:
+* :abbr:`Xtensa`
+
+Follow these steps to install the Zephyr SDK:
+
+#. Download the `latest SDK
+   <https://github.com/zephyrproject-rtos/sdk-ng/releases>`_ as a
+   self-extracting installation binary:
 
    .. code-block:: console
 
-      wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.10.0/zephyr-sdk-0.10.0-setup.run
+      wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.12.1/zephyr-sdk-0.12.1-x86_64-linux-setup.run
 
-   (You can change *0.10.0* to another version if needed; the `Zephyr
+   (You can change *0.12.1* to another version if needed; the `Zephyr
    Downloads`_ page contains all available SDK releases.)
 
-#. Run the installation binary:
+#. Run the installation binary, installing the SDK at
+   :file:`~/zephyr-sdk-0.12.1`:
 
    .. code-block:: console
 
       cd <sdk download directory>
-      sh zephyr-sdk-0.10.0-setup.run
+      chmod +x zephyr-sdk-0.12.1-x86_64-linux-setup.run
+      ./zephyr-sdk-0.12.1-x86_64-linux-setup.run -- -d ~/zephyr-sdk-0.12.1
 
-   .. important::
-      If this fails, make sure Zephyr's dependencies were installed
-      as described in `Install Requirements and Dependencies`_.
+   You can pick another directory if you want. If this fails, make sure
+   Zephyr's dependencies were installed as described in `Install Requirements
+   and Dependencies`_.
 
-#. Follow the installation instructions on the screen. The toolchain's
-   default installation location is :file:`/opt/zephyr-sdk/`, but it
-   is recommended to install the SDK under your home directory instead.
+If you ever want to uninstall the SDK, just remove the directory where you
+installed it.
 
-   To install the SDK in the default location, you need to run the
-   installation binary as root.
+.. note::
+   It is recommended to install the Zephyr SDK at one of the following locations:
 
-#. To use the Zephyr SDK, export the following environment variables and
-   use the target location where SDK was installed:
+   * ``$HOME/zephyr-sdk[-x.y.z]``
+   * ``$HOME/.local/zephyr-sdk[-x.y.z]``
+   * ``$HOME/.local/opt/zephyr-sdk[-x.y.z]``
+   * ``$HOME/bin/zephyr-sdk[-x.y.z]``
+   * ``/opt/zephyr-sdk[-x.y.z]``
+   * ``/usr/zephyr-sdk[-x.y.z]``
+   * ``/usr/local/zephyr-sdk[-x.y.z]``
 
-   .. code-block:: console
+   where ``[-x.y.z]`` is optional text, and can be any text, for example ``-0.12.1``.
 
-      export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-      export ZEPHYR_SDK_INSTALL_DIR=<sdk installation directory>
+   If you install the Zephyr SDK outside any of those locations, then it is
+   required to register the Zephyr SDK in the CMake package registry during
+   installation or set :envvar:`ZEPHYR_SDK_INSTALL_DIR` to point to the Zephyr
+   SDK installation folder.
+
+   :envvar:`ZEPHYR_SDK_INSTALL_DIR` can also be used for pointing to a folder
+   containing multiple Zephyr SDKs, allowing for automatic toolchain selection,
+   for example: ``ZEPHYR_SDK_INSTALL_DIR=/company/tools``
+
+   * ``/company/tools/zephyr-sdk-0.12.1``
+   * ``/company/tools/zephyr-sdk-a.b.c``
+   * ``/company/tools/zephyr-sdk-x.y.z``
+
+   this allow Zephyr to pick the right toolchain, while allowing multiple Zephyr
+   SDKs to be grouped together at a custom location.
 
 .. _sdkless_builds:
 
@@ -218,11 +303,10 @@ however, possible to build without the SDK's toolchain by using another
 toolchain as as described in the main :ref:`getting_started` document.
 
 As already noted above, the SDK also includes prebuilt host tools.  To use the
-SDK's prebuilt host tools with a toolchain from another source, keep the
-:envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variable set to the Zephyr SDK
+SDK's prebuilt host tools with a toolchain from another source, you must set the
+:envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variable to the Zephyr SDK
 installation directory. To build without the Zephyr SDK's prebuilt host tools,
-the :envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variable must be unset before
-you run ``source zephyr-env.sh`` later on in the Getting Started Guide.
+the :envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variable must be unset.
 
 To make sure this variable is unset, run:
 
@@ -230,5 +314,5 @@ To make sure this variable is unset, run:
 
    unset ZEPHYR_SDK_INSTALL_DIR
 
-.. _Zephyr Downloads: https://www.zephyrproject.org/developers/#downloads
+.. _Zephyr Downloads: https://github.com/zephyrproject-rtos/sdk-ng/releases
 .. _CMake Downloads: https://cmake.org/download

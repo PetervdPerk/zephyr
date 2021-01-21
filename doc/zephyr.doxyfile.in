@@ -44,14 +44,14 @@ PROJECT_NUMBER         =
 # for a project that appears at the top of each page and should give viewer a
 # quick idea about the purpose of the project. Keep the description short.
 
-PROJECT_BRIEF          =
+PROJECT_BRIEF          = "A Scalable Open Source RTOS for IoT Embedded Devices"
 
 # With the PROJECT_LOGO tag one can specify a logo or an icon that is included
 # in the documentation. The maximum height of the logo should not exceed 55
 # pixels and the maximum width should not exceed 200 pixels. Doxygen will copy
 # the logo to the output directory.
 
-PROJECT_LOGO           =
+PROJECT_LOGO           = "images/Zephyr-Kite-small.png"
 
 # The OUTPUT_DIRECTORY tag is used to specify the (relative or absolute) path
 # into which the generated documentation will be written. If a relative path is
@@ -220,20 +220,13 @@ TAB_SIZE               = 8
 # "Side Effects:". You can put \n's in the value part of an alias to insert
 # newlines.
 
-ALIASES                = "rst=\verbatim embed:rst" \
-                         "endrst=\endverbatim" \
-                         "rststar=\verbatim embed:rst:leading-asterisk" \
-                         "endrststar=\endverbatim" \
-                         "r=\verbatim embed:rst:leading-asterisk" \
-                         "er=\endverbatim"
+ALIASES                = "rst=\verbatim embed:rst:leading-asterisk" \
+                         "endrst=\endverbatim"
 
-ALIASES 	       += "req=\xrefitem req \"Requirement\" \"Requirements\" "
-
-# This tag can be used to specify a number of word-keyword mappings (TCL only).
-# A mapping has the form "name=value". For example adding "class=itcl::class"
-# will allow you to use the command class in the itcl::class meaning.
-
-TCL_SUBST              = YES
+ALIASES += option{1}="\verbatim embed:rst:inline :option:`\1` \endverbatim"
+ALIASES += req{1}="\ref ZEPH_\1 \"ZEPH-\1\" "
+ALIASES += satisfy{1}="\xrefitem satisfy \"Satisfies requirement\" \"Requirement Implementation\" \1"
+ALIASES += verify{1}="\xrefitem verify \"Verifies requirement\" \"Requirement Verification\" \1"
 
 # Set the OPTIMIZE_OUTPUT_FOR_C tag to YES if your project consists of C sources
 # only. Doxygen will then generate output that is more tailored for C. For
@@ -752,18 +745,12 @@ WARN_LOGFILE           =
 
 # This MUST be kept in sync with DOXY_SOURCES in doc/CMakeLists.txt
 # for incremental (and faster) builds to work correctly.
-INPUT                  = @ZEPHYR_BASE@/include/ \
-                         @ZEPHYR_BASE@/include/misc/ \
-                         @ZEPHYR_BASE@/include/arch/x86/ \
-                         @ZEPHYR_BASE@/include/arch/arc/ \
-                         @ZEPHYR_BASE@/include/arch/arc/v2 \
-                         @ZEPHYR_BASE@/include/arch/arm/ \
-                         @ZEPHYR_BASE@/include/arch/arm/cortex_m \
-                         @ZEPHYR_BASE@/include/arch/nios2/ \
+INPUT                  = custom-doxygen/mainpage.md \
+			 @ZEPHYR_BASE@/kernel/include/kernel_arch_interface.h \
+                         @ZEPHYR_BASE@/include/ \
                          @ZEPHYR_BASE@/lib/libc/minimal/include/ \
-                         @ZEPHYR_BASE@/include/net/dns_resolve.h \
-			 @ZEPHYR_BASE@/subsys/testsuite/ztest/include/ \
-			 @ZEPHYR_BASE@/tests/kernel/
+                         @ZEPHYR_BASE@/subsys/testsuite/ztest/include/ \
+                         @ZEPHYR_BASE@/tests/kernel/
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses
@@ -792,7 +779,8 @@ INPUT_ENCODING         = UTF-8
 # for incremental (and faster) builds to work correctly.
 FILE_PATTERNS          = "*.c" \
                          "*.h" \
-                         "*.S"
+                         "*.S" \
+                         "*.md"
 
 # The RECURSIVE tag can be used to specify whether or not subdirectories should
 # be searched for input files as well.
@@ -807,9 +795,7 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which doxygen is
 # run.
 
-EXCLUDE                = @ZEPHYR_BASE@/include/spi_legacy.h \
-                         @ZEPHYR_BASE@/include/net/http_legacy.h \
-                         @ZEPHYR_BASE@/include/cmsis_rtos_v1/cmsis_os.h \
+EXCLUDE                = @ZEPHYR_BASE@/include/cmsis_rtos_v1/cmsis_os.h \
                          @ZEPHYR_BASE@/include/cmsis_rtos_v2/cmsis_os2.h \
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
@@ -839,7 +825,7 @@ EXCLUDE_PATTERNS       =
 
 # Hide internal names (starting with an underscore, and doxygen-generated names
 # for nested unnamed unions that don't generate meaningful sphinx output anyway.
-EXCLUDE_SYMBOLS        = _*  *.__unnamed__
+EXCLUDE_SYMBOLS        = _*  *.__unnamed__ z_* Z_*
 
 # The EXAMPLE_PATH tag can be used to specify one or more files or directories
 # that contain example code fragments that are included (see the \include
@@ -921,7 +907,7 @@ FILTER_SOURCE_PATTERNS =
 # (index.html). This can be useful if you have a project on for instance GitHub
 # and want to reuse the introduction page also for the doxygen output.
 
-USE_MDFILE_AS_MAINPAGE = YES
+USE_MDFILE_AS_MAINPAGE = "mainpage.md"
 
 #---------------------------------------------------------------------------
 # Configuration options related to source browsing
@@ -1077,7 +1063,7 @@ HTML_FILE_EXTENSION    = .html
 # of the possible markers and block names see the documentation.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_HEADER            =
+HTML_HEADER            = custom-doxygen/header.html
 
 # The HTML_FOOTER tag can be used to specify a user-defined HTML footer for each
 # generated HTML page. If the tag is left blank doxygen will generate a standard
@@ -1112,7 +1098,7 @@ HTML_STYLESHEET        =
 # list). For an example see the documentation.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_EXTRA_STYLESHEET  =
+HTML_EXTRA_STYLESHEET  = custom-doxygen/customdoxygen.css
 
 # The HTML_EXTRA_FILES tag can be used to specify one or more extra images or
 # other source files which should be copied to the HTML output directory. Note
@@ -1133,7 +1119,7 @@ HTML_EXTRA_FILES       =
 # Minimum value: 0, maximum value: 359, default value: 220.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_COLORSTYLE_HUE    = 220
+HTML_COLORSTYLE_HUE    =
 
 # The HTML_COLORSTYLE_SAT tag controls the purity (or saturation) of the colors
 # in the HTML output. For a value of 0 the output will use grayscales only. A
@@ -1141,7 +1127,7 @@ HTML_COLORSTYLE_HUE    = 220
 # Minimum value: 0, maximum value: 255, default value: 100.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_COLORSTYLE_SAT    = 100
+HTML_COLORSTYLE_SAT    =
 
 # The HTML_COLORSTYLE_GAMMA tag controls the gamma correction applied to the
 # luminance component of the colors in the HTML output. Values below 100
@@ -1152,7 +1138,7 @@ HTML_COLORSTYLE_SAT    = 100
 # Minimum value: 40, maximum value: 240, default value: 80.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_COLORSTYLE_GAMMA  = 80
+HTML_COLORSTYLE_GAMMA  =
 
 # If the HTML_TIMESTAMP tag is set to YES then the footer of each generated HTML
 # page will contain the date and time when the page was generated. Setting this
@@ -1971,26 +1957,47 @@ INCLUDE_FILE_PATTERNS  =
 # recursively expanded use the := operator instead of the = operator.
 # This tag requires that the tag ENABLE_PREPROCESSING is set to YES.
 
-PREDEFINED             = "CONFIG_SYS_CLOCK_EXISTS=y" \
-                         "CONFIG_THREAD_MONITOR=y" \
-                         "CONFIG_NET_MGMT_EVENT=y" \
-			 "CONFIG_NET_UDP=y" \
-			 "CONFIG_NET_TCP=y" \
-			 "CONFIG_NET_L2_ETHERNET_MGMT=y" \
-                         "CONFIG_THREAD_CUSTOM_DATA=y" \
-			 "CONFIG_SCHED_DEADLINE=y" \
-                         "CONFIG_ERRNO=y" \
-                         "CONFIG_THREAD_STACK_INFO=y" \
-                         "CONFIG_UART_INTERRUPT_DRIVEN=y" \
-                         "CONFIG_UART_DRV_CMD=y" \
-                         "CONFIG_SYS_POWER_MANAGEMENT=y" \
-                         "CONFIG_DEVICE_POWER_MANAGEMENT=y" \
-                         "CONFIG_BT_SMP=y" \
-                         "CONFIG_USERSPACE=y" \
-                         "CONFIG_BT_BREDR=y" \
+PREDEFINED             = "CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT" \
+                         "CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN" \
+                         "CONFIG_BT_BREDR" \
+                         "CONFIG_BT_MESH_MODEL_EXTENSIONS" \
+                         "CONFIG_BT_REMOTE_INFO" \
+                         "CONFIG_BT_USER_DATA_LEN_UPDATE" \
+                         "CONFIG_BT_USER_PHY_UPDATE" \
+                         "CONFIG_BT_SMP" \
+                         "CONFIG_BT_SMP_APP_PAIRING_ACCEPT" \
+                         "CONFIG_PM_DEVICE" \
+                         "CONFIG_PM_DEVICE_IDLE" \
+                         "CONFIG_ERRNO" \
+                         "CONFIG_FLASH_JESD216_API" \
+                         "CONFIG_FLASH_PAGE_LAYOUT" \
+                         "CONFIG_FPU" \
+                         "CONFIG_FPU_SHARING" \
+                         "CONFIG_HEAP_MEM_POOL_SIZE" \
+                         "CONFIG_MMU" \
+                         "CONFIG_NET_L2_ETHERNET_MGMT" \
+                         "CONFIG_NET_MGMT_EVENT" \
+                         "CONFIG_NET_TCP" \
+                         "CONFIG_NET_UDP" \
+                         "CONFIG_PWM_CAPTURE" \
+                         "CONFIG_SCHED_CPU_MASK" \
+                         "CONFIG_SCHED_DEADLINE" \
+                         "CONFIG_SCHED_DEADLINE" \
+                         "CONFIG_SETTINGS_RUNTIME" \
+                         "CONFIG_SMP" \
+                         "CONFIG_SPI_ASYNC" \
+                         "CONFIG_SYS_CLOCK_EXISTS" \
+                         "CONFIG_PM" \
+                         "CONFIG_THREAD_CUSTOM_DATA" \
+                         "CONFIG_THREAD_MONITOR" \
+                         "CONFIG_THREAD_STACK_INFO" \
+                         "CONFIG_UART_DRV_CMD" \
+                         "CONFIG_UART_INTERRUPT_DRIVEN" \
+                         "CONFIG_UART_ASYNC_API" \
+                         "CONFIG_USERSPACE" \
+                         "CONFIG_USE_SWITCH" \
                          "NET_MGMT_DEFINE_REQUEST_HANDLER(x)=" \
                          "DEVICE_DEFINE()=" \
-                         "DEVICE_AND_API_INIT()=" \
                          "BUILD_ASSERT_MSG()=" \
                          "BUILD_ASSERT()=" \
                          "__deprecated=" \
@@ -1999,7 +2006,7 @@ PREDEFINED             = "CONFIG_SYS_CLOCK_EXISTS=y" \
                          "__printf_like(x, y)=" \
                          "__attribute__(x)=" \
                          "__syscall=" \
-                         "__syscall_inline="
+                         "DT_DOXYGEN"
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then this
 # tag can be used to specify a list of macro names that should be expanded. The
@@ -2066,12 +2073,6 @@ EXTERNAL_GROUPS        = YES
 
 EXTERNAL_PAGES         = YES
 
-# The PERL_PATH should be the absolute path and name of the perl script
-# interpreter (i.e. the result of 'which perl').
-# The default file (with absolute path) is: /usr/bin/perl.
-
-PERL_PATH              = /usr/bin/perl
-
 #---------------------------------------------------------------------------
 # Configuration options related to the dot tool
 #---------------------------------------------------------------------------
@@ -2084,15 +2085,6 @@ PERL_PATH              = /usr/bin/perl
 # The default value is: YES.
 
 CLASS_DIAGRAMS         = NO
-
-# You can define message sequence charts within doxygen comments using the \msc
-# command. Doxygen will then run the mscgen tool (see:
-# http://www.mcternan.me.uk/mscgen/)) to produce the chart and insert it in the
-# documentation. The MSCGEN_PATH tag allows you to specify the directory where
-# the mscgen tool resides. If left empty the tool is assumed to be found in the
-# default search path.
-
-MSCGEN_PATH            =
 
 # You can include diagrams made with dia in doxygen documentation. Doxygen will
 # then run dia to produce the diagram and insert it in the documentation. The

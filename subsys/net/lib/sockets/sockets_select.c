@@ -21,13 +21,13 @@ void ZSOCK_FD_ZERO(zsock_fd_set *set)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(set->bitset); i++) {
-		set->bitset[i] = 0;
+		set->bitset[i] = 0U;
 	}
 }
 
 int ZSOCK_FD_ISSET(int fd, zsock_fd_set *set)
 {
-	u32_t word_idx, bit_mask;
+	uint32_t word_idx, bit_mask;
 
 	if (fd < 0 || fd >= ZSOCK_FD_SETSIZE) {
 		return 0;
@@ -35,12 +35,12 @@ int ZSOCK_FD_ISSET(int fd, zsock_fd_set *set)
 
 	FD_SET_CALC_OFFSETS(set, word_idx, bit_mask);
 
-	return (set->bitset[word_idx] & bit_mask) != 0;
+	return (set->bitset[word_idx] & bit_mask) != 0U;
 }
 
 void ZSOCK_FD_CLR(int fd, zsock_fd_set *set)
 {
-	u32_t word_idx, bit_mask;
+	uint32_t word_idx, bit_mask;
 
 	if (fd < 0 || fd >= ZSOCK_FD_SETSIZE) {
 		return;
@@ -53,7 +53,7 @@ void ZSOCK_FD_CLR(int fd, zsock_fd_set *set)
 
 void ZSOCK_FD_SET(int fd, zsock_fd_set *set)
 {
-	u32_t word_idx, bit_mask;
+	uint32_t word_idx, bit_mask;
 
 	if (fd < 0 || fd >= ZSOCK_FD_SETSIZE) {
 		return;
@@ -74,9 +74,9 @@ int zsock_select(int nfds, zsock_fd_set *readfds, zsock_fd_set *writefds,
 	int fd_no = 0;
 
 	for (i = 0; i < STRUCT_MEMBER_ARRAY_SIZE(zsock_fd_set, bitset); i++) {
-		u32_t bit_mask = 1;
-		u32_t read_mask = 0, write_mask = 0, except_mask = 0;
-		u32_t ored_mask;
+		uint32_t bit_mask = 1U;
+		uint32_t read_mask = 0U, write_mask = 0U, except_mask = 0U;
+		uint32_t ored_mask;
 
 		if (readfds != NULL) {
 			read_mask = readfds->bitset[i];
@@ -91,7 +91,7 @@ int zsock_select(int nfds, zsock_fd_set *readfds, zsock_fd_set *writefds,
 		}
 
 		ored_mask = read_mask | write_mask | except_mask;
-		if (ored_mask == 0) {
+		if (ored_mask == 0U) {
 			continue;
 		}
 
@@ -122,7 +122,7 @@ int zsock_select(int nfds, zsock_fd_set *readfds, zsock_fd_set *writefds,
 
 			bit_mask <<= 1;
 			fd_no++;
-		} while (bit_mask != 0);
+		} while (bit_mask != 0U);
 	}
 
 	poll_timeout = -1;

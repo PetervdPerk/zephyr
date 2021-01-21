@@ -1,13 +1,11 @@
-# Kconfig - FXAS21002 3-axis gyroscope
-#
+# FXAS21002 3-axis gyroscope
+
 # Copyright (c) 2017, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menuconfig FXAS21002
 	bool "FXAS21002 gyroscope driver"
-	depends on I2C && HAS_DTS_I2C && HAS_DTS_GPIO
+	depends on I2C && HAS_DTS_GPIO
 	help
 	  Enable driver for the FXAS21002 gyroscope
 

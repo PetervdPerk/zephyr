@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Linaro Limited
+ * Copyright (c) 2018-2019 Linaro Limited
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,8 +9,12 @@
 
 #ifndef _ASMLANGUAGE
 #include "system_cmsdk_musca.h"
-#include <generated_dts_board.h>
-#include <misc/util.h>
+#include <devicetree.h>
+#include <sys/util.h>
 #endif
+
+extern void wakeup_cpu1(void);
+
+extern uint32_t sse_200_platform_get_cpu_id(void);
 
 #endif /* _SOC_H_ */

@@ -1,12 +1,12 @@
 identifier: stm32f746g_disco
-name: STM32F746GDISCOVERY
+name: ST STM32F746G Discovery
 type: mcu
 arch: arm
 toolchain:
   - zephyr
   - gnuarmemb
   - xtools
-ram: 320
+ram: 256
 flash: 1024
 supported:
   - arduino_i2c
@@ -15,6 +15,7 @@ supported:
   - spi
   - gpio
   - pwm
-  - rtc
   - counter
+  - sdhc
   - usb_device
+  - kscan:touch

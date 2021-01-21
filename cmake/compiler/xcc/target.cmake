@@ -1,18 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
 set_ifndef(C++ g++)
 
 # Configures CMake for using GCC, this script is re-used by several
 # GCC-based toolchains
 
-find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC}   PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_OBJCOPY    ${CROSS_COMPILE}objcopy PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_OBJDUMP    ${CROSS_COMPILE}objdump PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_AS         ${CROSS_COMPILE}as      PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_LINKER     ${CROSS_COMPILE}ld      PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_AR         ${CROSS_COMPILE}ar      PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_RANLIB     ${CROSS_COMPILE}ranlib  PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_READELF    ${CROSS_COMPILE}readelf PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_GDB        ${CROSS_COMPILE}gdb     PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_NM         ${CROSS_COMPILE}nm      PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC} PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
 if(CONFIG_CPLUSPLUS)
   set(cplusplus_compiler ${CROSS_COMPILE}${C++})
@@ -26,7 +19,7 @@ else()
     set(cplusplus_compiler ${CMAKE_C_COMPILER})
   endif()
 endif()
-find_program(CMAKE_CXX_COMPILER ${cplusplus_compiler} PATH ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+find_program(CMAKE_CXX_COMPILER ${cplusplus_compiler} PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
 set(NOSTDINC "")
 
@@ -36,11 +29,12 @@ if(NOT DEFINED NOSYSDEF_CFLAG)
   set(NOSYSDEF_CFLAG -undef)
 endif()
 
-foreach(file_name include include-fixed)
+foreach(file_name include/stddef.h include-fixed/limits.h)
   execute_process(
     COMMAND ${CMAKE_C_COMPILER} --print-file-name=${file_name}
     OUTPUT_VARIABLE _OUTPUT
     )
+  get_filename_component(_OUTPUT "${_OUTPUT}" DIRECTORY)
   string(REGEX REPLACE "\n" "" _OUTPUT "${_OUTPUT}")
 
   list(APPEND NOSTDINC ${_OUTPUT})
@@ -71,11 +65,3 @@ endforeach()
 # toolchain-specific flags at generation time.
 list(APPEND CMAKE_REQUIRED_FLAGS -nostartfiles -nostdlib ${isystem_include_flags} -Wl,--unresolved-symbols=ignore-in-object-files)
 string(REPLACE ";" " " CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
-
-# Load toolchain_cc-family macros
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_security_fortify.cmake)
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_security_canaries.cmake)
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_optimizations.cmake)
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_cpp.cmake)
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_asm.cmake)
-include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_baremetal.cmake)

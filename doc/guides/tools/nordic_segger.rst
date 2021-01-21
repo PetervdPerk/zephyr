@@ -63,7 +63,7 @@ Where ``<x>`` is either 1 for nRF51-based boards or 2 for nRF52-based boards
 
    nrfjprog --program outdir/<board>/zephyr.hex -f nrf5<x>
 
-Where: ``<board>`` is the board name you used in the BOARD directive when building (for example nrf52_pca10040)
+Where: ``<board>`` is the board name you used in the BOARD directive when building (for example nrf52dk_nrf52832)
 and ``<x>`` is either 1 for nRF51-based boards or 2 for nRF52-based boards
 
 * Reset and start Zephyr:
@@ -162,9 +162,16 @@ To use RTT, you will first need to enable it by adding the following lines in yo
 
 .. code-block:: text
 
-   CONFIG_HAS_SEGGER_RTT=y
    CONFIG_USE_SEGGER_RTT=y
    CONFIG_RTT_CONSOLE=y
+
+.. warning::
+
+   There is also a ``HAS_SEGGER_RTT`` symbol that indicates that the platform
+   supports SEGGER J-Link RTT. This symbol is set automatically by the SoC
+   Kconfig files. Do not confuse it with ``USE_SEGGER_RTT``.
+
+   ``USE_SEGGER_RTT`` depends on ``HAS_SEGGER_RTT``.
 
 If you get no RTT output you might need to disable other consoles which conflict
 with the RTT one if they are enabled by default in the particular sample or
@@ -229,7 +236,7 @@ References
 
 .. target-notes::
 
-.. _nRF5x Command-Line Tools: https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF5-Command-Line-Tools
+.. _nRF5x Command-Line Tools: https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Command-Line-Tools
 
 .. _Segger SAM3U Wiki: https://wiki.segger.com/index.php?title=J-Link-OB_SAM3U
 .. _Real-Time Tracing (RTT): https://www.segger.com/jlink-rtt.html
@@ -241,4 +248,3 @@ References
 .. _blacklist Segger devices by editing udev rules: http://www.at91.com/linux4sam/bin/view/Linux4SAM/SoftwareTools#Device_or_resource_busy_dev_ttyA
 
 .. _J-Link Software and documentation pack: https://www.segger.com/jlink-software.html
-

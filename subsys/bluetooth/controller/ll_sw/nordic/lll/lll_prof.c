@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
+#include <stddef.h>
+
 #include <toolchain.h>
-#include <zephyr/types.h>
 
 #include "hal/ccm.h"
 #include "hal/radio.h"
@@ -16,13 +18,13 @@
 
 #include "lll.h"
 
-static u8_t latency_min = (u8_t) -1;
-static u8_t latency_max;
-static u8_t latency_prev;
-static u8_t cputime_min = (u8_t) -1;
-static u8_t cputime_max;
-static u8_t cputime_prev;
-static u32_t timestamp_latency;
+static uint8_t latency_min = (uint8_t) -1;
+static uint8_t latency_max;
+static uint8_t latency_prev;
+static uint8_t cputime_min = (uint8_t) -1;
+static uint8_t cputime_max;
+static uint8_t cputime_prev;
+static uint32_t timestamp_latency;
 
 void lll_prof_latency_capture(void)
 {
@@ -33,9 +35,9 @@ void lll_prof_latency_capture(void)
 }
 
 #if defined(CONFIG_BT_CTLR_GPIO_PA_PIN)
-static u32_t timestamp_radio_end;
+static uint32_t timestamp_radio_end;
 
-u32_t lll_prof_radio_end_backup(void)
+uint32_t lll_prof_radio_end_backup(void)
 {
 	/* PA enable is overwriting packet end used in ISR profiling, hence
 	 * back it up for later use.
@@ -59,8 +61,8 @@ void lll_prof_cputime_capture(void)
 
 void lll_prof_send(void)
 {
-	u8_t latency, cputime, prev;
-	u8_t chg = 0;
+	uint8_t latency, cputime, prev;
+	uint8_t chg = 0U;
 
 	/* calculate the elapsed time in us since on-air radio packet end
 	 * to ISR entry
@@ -74,18 +76,18 @@ void lll_prof_send(void)
 	/* check changes in min, avg and max of latency */
 	if (latency > latency_max) {
 		latency_max = latency;
-		chg = 1;
+		chg = 1U;
 	}
 	if (latency < latency_min) {
 		latency_min = latency;
-		chg = 1;
+		chg = 1U;
 	}
 
 	/* check for +/- 1us change */
-	prev = ((u16_t)latency_prev + latency) >> 1;
+	prev = ((uint16_t)latency_prev + latency) >> 1;
 	if (prev != latency_prev) {
 		latency_prev = latency;
-		chg = 1;
+		chg = 1U;
 	}
 
 	/* calculate the elapsed time in us since ISR entry */
@@ -94,19 +96,19 @@ void lll_prof_send(void)
 	/* check changes in min, avg and max */
 	if (cputime > cputime_max) {
 		cputime_max = cputime;
-		chg = 1;
+		chg = 1U;
 	}
 
 	if (cputime < cputime_min) {
 		cputime_min = cputime;
-		chg = 1;
+		chg = 1U;
 	}
 
 	/* check for +/- 1us change */
-	prev = ((u16_t)cputime_prev + cputime) >> 1;
+	prev = ((uint16_t)cputime_prev + cputime) >> 1;
 	if (prev != cputime_prev) {
 		cputime_prev = cputime;
-		chg = 1;
+		chg = 1U;
 	}
 
 	/* generate event if any change */

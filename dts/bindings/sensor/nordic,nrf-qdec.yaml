@@ -1,73 +1,65 @@
-#
 # Copyright (c) 2018, Nordic Semiconductor ASA
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: Nordic nRF Family QDEC node
-version: 0.1
 
-description: >
-    This is a representation of the Nordic nRF QDEC node
+description: Nordic nRF quadrature decoder (QDEC) node
+
+compatible: "nordic,nrf-qdec"
+
+include: base.yaml
 
 properties:
-    compatible:
-      type: string
-      category: required
-      description: compatible strings
-      constraint: "nordic,nrf-qdec"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
     a-pin:
       type: int
-      description: A pin
-      generation: define
-      category: required
+      required: true
+      description: |
+        The A pin to use.
+
+        For pins P0.0 through P0.31, use the pin number. For example,
+        to use P0.16 for the A pin, set:
+
+            a-pin = <16>;
+
+        For pins P1.0 through P1.31, add 32 to the pin number. For
+        example, to use P1.2 for the A pin, set:
+
+            a-pin = <34>;  /* 32 + 2 */
 
     b-pin:
       type: int
-      description: B pin
-      generation: define
-      category: required
+      required: true
+      description: |
+        The B pin to use. The pin numbering scheme is the same as
+        the a-pin property's.
 
     led-pin:
       type: int
-      description: LED pin for light based QDEC device
-      generation: define
-      category: optional
+      required: false
+      description: |
+        The LED pin to use for a light based QDEC device. The pin
+        numbering scheme is the same as the a-pin property's.
 
     enable-pin:
       type: int
-      description: Enables connected QDEC device
-      generation: define
-      category: optional
+      required: false
+      description: |
+        The enable pin to use, to enable a connected QDEC device. The
+        pin numbering scheme is the same as the a-pin property's.
 
     led-pre:
       type: int
       description: Time LED is enabled prior to sampling event (in us)
-      generation: define
-      category: required
+      required: true
 
     steps:
       type: int
       description: Number of steps on the rotating wheel
-      generation: define
-      category: required
+      required: true
 
     label:
-      type: string
-      category: required
-      description: Human readable string describing the device (used by Zephyr for API name)
-      generation: define
-...
+      required: true

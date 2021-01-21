@@ -150,8 +150,8 @@ static const struct in_addr client_addr = { { { 255, 255, 255, 255 } } };
 #define REQUEST		3
 
 struct dhcp_msg {
-	u32_t xid;
-	u8_t type;
+	uint32_t xid;
+	uint8_t type;
 };
 
 static struct k_sem test_lock;
@@ -159,22 +159,22 @@ static struct k_sem test_lock;
 #define WAIT_TIME K_SECONDS(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX + 1)
 
 struct net_dhcpv4_context {
-	u8_t mac_addr[sizeof(struct net_eth_addr)];
+	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 	struct net_linkaddr ll_addr;
 };
 
-static int net_dhcpv4_dev_init(struct device *dev)
+static int net_dhcpv4_dev_init(const struct device *dev)
 {
-	struct net_dhcpv4_context *net_dhcpv4_context = dev->driver_data;
+	struct net_dhcpv4_context *net_dhcpv4_context = dev->data;
 
 	net_dhcpv4_context = net_dhcpv4_context;
 
 	return 0;
 }
 
-static u8_t *net_dhcpv4_get_mac(struct device *dev)
+static uint8_t *net_dhcpv4_get_mac(const struct device *dev)
 {
-	struct net_dhcpv4_context *context = dev->driver_data;
+	struct net_dhcpv4_context *context = dev->data;
 
 	if (context->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -191,12 +191,12 @@ static u8_t *net_dhcpv4_get_mac(struct device *dev)
 
 static void net_dhcpv4_iface_init(struct net_if *iface)
 {
-	u8_t *mac = net_dhcpv4_get_mac(net_if_get_device(iface));
+	uint8_t *mac = net_dhcpv4_get_mac(net_if_get_device(iface));
 
 	net_if_set_link_addr(iface, mac, 6, NET_LINK_ETHERNET);
 }
 
-struct net_pkt *prepare_dhcp_offer(struct net_if *iface, u32_t xid)
+struct net_pkt *prepare_dhcp_offer(struct net_if *iface, uint32_t xid)
 {
 	struct net_pkt *pkt;
 
@@ -208,21 +208,21 @@ struct net_pkt *prepare_dhcp_offer(struct net_if *iface, u32_t xid)
 
 	net_pkt_set_ipv4_ttl(pkt, 0xFF);
 
-	if (net_ipv4_create_new(pkt, &server_addr, &client_addr) ||
+	if (net_ipv4_create(pkt, &server_addr, &client_addr) ||
 	    net_udp_create(pkt, htons(SERVER_PORT), htons(CLIENT_PORT))) {
 		goto fail;
 	}
 
-	if (net_pkt_write_new(pkt, offer, 4)) {
+	if (net_pkt_write(pkt, offer, 4)) {
 		goto fail;
 	}
 
 	/* Update xid from the client request */
-	if (net_pkt_write_be32_new(pkt, xid)) {
+	if (net_pkt_write_be32(pkt, xid)) {
 		goto fail;
 	}
 
-	if (net_pkt_write_new(pkt, offer + 8, sizeof(offer) - 8)) {
+	if (net_pkt_write(pkt, offer + 8, sizeof(offer) - 8)) {
 		goto fail;
 	}
 
@@ -237,7 +237,7 @@ fail:
 	return NULL;
 }
 
-struct net_pkt *prepare_dhcp_ack(struct net_if *iface, u32_t xid)
+struct net_pkt *prepare_dhcp_ack(struct net_if *iface, uint32_t xid)
 {
 	struct net_pkt *pkt;
 
@@ -249,21 +249,21 @@ struct net_pkt *prepare_dhcp_ack(struct net_if *iface, u32_t xid)
 
 	net_pkt_set_ipv4_ttl(pkt, 0xFF);
 
-	if (net_ipv4_create_new(pkt, &server_addr, &client_addr) ||
+	if (net_ipv4_create(pkt, &server_addr, &client_addr) ||
 	    net_udp_create(pkt, htons(SERVER_PORT), htons(CLIENT_PORT))) {
 		goto fail;
 	}
 
-	if (net_pkt_write_new(pkt, ack, 4)) {
+	if (net_pkt_write(pkt, ack, 4)) {
 		goto fail;
 	}
 
 	/* Update xid from the client request */
-	if (net_pkt_write_be32_new(pkt, xid)) {
+	if (net_pkt_write_be32(pkt, xid)) {
 		goto fail;
 	}
 
-	if (net_pkt_write_new(pkt, ack + 8, sizeof(ack) - 8)) {
+	if (net_pkt_write(pkt, ack + 8, sizeof(ack) - 8)) {
 		goto fail;
 	}
 
@@ -290,7 +290,7 @@ static int parse_dhcp_message(struct net_pkt *pkt, struct dhcp_msg *msg)
 		return 0;
 	}
 
-	if (net_pkt_read_be32_new(pkt, &msg->xid)) {
+	if (net_pkt_read_be32(pkt, &msg->xid)) {
 		return 0;
 	}
 
@@ -300,10 +300,10 @@ static int parse_dhcp_message(struct net_pkt *pkt, struct dhcp_msg *msg)
 	}
 
 	while (1) {
-		u8_t length = 0U;
-		u8_t type;
+		uint8_t length = 0U;
+		uint8_t type;
 
-		if (net_pkt_read_u8_new(pkt, &type)) {
+		if (net_pkt_read_u8(pkt, &type)) {
 			return 0;
 		}
 
@@ -312,14 +312,14 @@ static int parse_dhcp_message(struct net_pkt *pkt, struct dhcp_msg *msg)
 				return 0;
 			}
 
-			if (net_pkt_read_u8_new(pkt, &msg->type)) {
+			if (net_pkt_read_u8(pkt, &msg->type)) {
 				return 0;
 			}
 
 			return 1;
 		}
 
-		if (net_pkt_read_u8_new(pkt, &length)) {
+		if (net_pkt_read_u8(pkt, &length)) {
 			return 0;
 		}
 
@@ -331,7 +331,7 @@ static int parse_dhcp_message(struct net_pkt *pkt, struct dhcp_msg *msg)
 	return 0;
 }
 
-static int tester_send(struct device *dev, struct net_pkt *pkt)
+static int tester_send(const struct device *dev, struct net_pkt *pkt)
 {
 	struct net_pkt *rpkt;
 	struct dhcp_msg msg;
@@ -380,20 +380,30 @@ static struct dummy_api net_dhcpv4_if_api = {
 };
 
 NET_DEVICE_INIT(net_dhcpv4_test, "net_dhcpv4_test",
-		net_dhcpv4_dev_init, &net_dhcpv4_context_data, NULL,
+		net_dhcpv4_dev_init, device_pm_control_nop,
+		&net_dhcpv4_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_dhcpv4_if_api, DUMMY_L2,
 		NET_L2_GET_CTX_TYPE(DUMMY_L2), 127);
 
 static struct net_mgmt_event_callback rx_cb;
+static struct net_mgmt_event_callback dns_cb;
+static struct net_mgmt_event_callback dhcp_cb;
+static int event_count;
 
 static void receiver_cb(struct net_mgmt_event_callback *cb,
-			u32_t nm_event, struct net_if *iface)
+			uint32_t nm_event, struct net_if *iface)
 {
-	if (nm_event != NET_EVENT_IPV4_ADDR_ADD) {
+	if (nm_event != NET_EVENT_IPV4_ADDR_ADD &&
+	    nm_event != NET_EVENT_DNS_SERVER_ADD &&
+	    nm_event != NET_EVENT_DNS_SERVER_DEL &&
+	    nm_event != NET_EVENT_IPV4_DHCP_START &&
+	    nm_event != NET_EVENT_IPV4_DHCP_BOUND) {
 		/* Spurious callback. */
 		return;
 	}
+
+	event_count++;
 
 	k_sem_give(&test_lock);
 }
@@ -409,6 +419,18 @@ void test_dhcp(void)
 
 	net_mgmt_add_event_callback(&rx_cb);
 
+	net_mgmt_init_event_callback(&dns_cb, receiver_cb,
+				     NET_EVENT_DNS_SERVER_ADD |
+				     NET_EVENT_DNS_SERVER_DEL);
+
+	net_mgmt_add_event_callback(&dns_cb);
+
+	net_mgmt_init_event_callback(&dhcp_cb, receiver_cb,
+				     NET_EVENT_IPV4_DHCP_START |
+				     NET_EVENT_IPV4_DHCP_BOUND);
+
+	net_mgmt_add_event_callback(&dhcp_cb);
+
 	iface = net_if_get_default();
 	if (!iface) {
 		zassert_true(false, "Interface not available");
@@ -416,8 +438,10 @@ void test_dhcp(void)
 
 	net_dhcpv4_start(iface);
 
-	if (k_sem_take(&test_lock, WAIT_TIME)) {
-		zassert_true(false, "Timeout while waiting");
+	while (event_count < 5) {
+		if (k_sem_take(&test_lock, WAIT_TIME)) {
+			zassert_true(false, "Timeout while waiting");
+		}
 	}
 }
 

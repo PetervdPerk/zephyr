@@ -32,7 +32,7 @@ static void tfifo_put(struct k_fifo *pfifo)
 
 	head->snode.next = (sys_snode_t *)tail;
 	tail->snode.next = NULL;
-	k_fifo_put_list(pfifo, (u32_t *)head, (u32_t *)tail);
+	k_fifo_put_list(pfifo, (uint32_t *)head, (uint32_t *)tail);
 
 	/**TESTPOINT: fifo put slist*/
 	sys_slist_t slist;
@@ -66,13 +66,13 @@ static void tfifo_get(struct k_fifo *pfifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry_put(void *p)
+static void tIsr_entry_put(const void *p)
 {
 	tfifo_put((struct k_fifo *)p);
 	zassert_false(k_fifo_is_empty((struct k_fifo *)p), NULL);
 }
 
-static void tIsr_entry_get(void *p)
+static void tIsr_entry_get(const void *p)
 {
 	tfifo_get((struct k_fifo *)p);
 	zassert_true(k_fifo_is_empty((struct k_fifo *)p), NULL);
@@ -90,7 +90,7 @@ static void tfifo_thread_thread(struct k_fifo *pfifo)
 	/**TESTPOINT: thread-thread data passing via fifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 				      tThread_entry, pfifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 	tfifo_put(pfifo);
 	k_sem_take(&end_sema, K_FOREVER);
 	k_thread_abort(tid);
@@ -100,7 +100,7 @@ static void tfifo_thread_isr(struct k_fifo *pfifo)
 {
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: isr-thread data passing via fifo*/
-	irq_offload(tIsr_entry_put, pfifo);
+	irq_offload(tIsr_entry_put, (const void *)pfifo);
 	tfifo_get(pfifo);
 }
 
@@ -109,7 +109,7 @@ static void tfifo_isr_thread(struct k_fifo *pfifo)
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: thread-isr data passing via fifo*/
 	tfifo_put(pfifo);
-	irq_offload(tIsr_entry_get, pfifo);
+	irq_offload(tIsr_entry_get, (const void *)pfifo);
 }
 
 static void tfifo_is_empty(void *p)
@@ -194,7 +194,7 @@ void test_fifo_is_empty_isr(void)
 {
 	k_fifo_init(&fifo);
 	/**TESTPOINT: check fifo is empty from isr*/
-	irq_offload(tfifo_is_empty, &fifo);
+	irq_offload((irq_offload_routine_t)tfifo_is_empty, &fifo);
 }
 /**
  * @}

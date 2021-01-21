@@ -6,10 +6,12 @@
 
 #include <kernel.h>
 #include <syscall_handler.h>
-#include <i2s.h>
+#include <drivers/i2s.h>
 
 
-Z_SYSCALL_HANDLER(i2s_configure, dev, dir, cfg_ptr)
+static inline int z_vrfy_i2s_configure(const struct device *dev,
+				       enum i2s_dir dir,
+				       struct i2s_config *cfg_ptr)
 {
 	struct i2s_config config;
 	int ret = -EINVAL;
@@ -35,12 +37,14 @@ Z_SYSCALL_HANDLER(i2s_configure, dev, dir, cfg_ptr)
 		goto out;
 	}
 
-	ret = z_impl_i2s_configure((struct device *)dev, dir, &config);
+	ret = z_impl_i2s_configure((const struct device *)dev, dir, &config);
 out:
 	return ret;
 }
+#include <syscalls/i2s_configure_mrsh.c>
 
-Z_SYSCALL_HANDLER(i2s_buf_read, dev, buf, size)
+static inline int z_vrfy_i2s_buf_read(const struct device *dev,
+				      void *buf, size_t *size)
 {
 	void *mem_block;
 	size_t data_size;
@@ -48,7 +52,7 @@ Z_SYSCALL_HANDLER(i2s_buf_read, dev, buf, size)
 
 	Z_OOPS(Z_SYSCALL_DRIVER_I2S(dev, read));
 
-	ret = i2s_read((struct device *)dev, &mem_block, &data_size);
+	ret = i2s_read((const struct device *)dev, &mem_block, &data_size);
 
 	if (!ret) {
 		struct i2s_config *rx_cfg;
@@ -57,7 +61,8 @@ Z_SYSCALL_HANDLER(i2s_buf_read, dev, buf, size)
 		/* Presumed to be configured otherwise the i2s_read() call
 		 * would have failed.
 		 */
-		rx_cfg = i2s_config_get((struct device *)dev, I2S_DIR_RX);
+		rx_cfg = i2s_config_get((const struct device *)dev,
+					I2S_DIR_RX);
 
 		copy_success = z_user_to_copy((void *)buf, mem_block,
 					      data_size);
@@ -70,15 +75,17 @@ Z_SYSCALL_HANDLER(i2s_buf_read, dev, buf, size)
 
 	return ret;
 }
+#include <syscalls/i2s_buf_read_mrsh.c>
 
-Z_SYSCALL_HANDLER(i2s_buf_write, dev, buf, size)
+static inline int z_vrfy_i2s_buf_write(const struct device *dev,
+				       void *buf, size_t size)
 {
 	int ret;
 	struct i2s_config *tx_cfg;
 	void *mem_block;
 
 	Z_OOPS(Z_SYSCALL_DRIVER_I2S(dev, write));
-	tx_cfg = i2s_config_get((struct device *)dev, I2S_DIR_TX);
+	tx_cfg = i2s_config_get((const struct device *)dev, I2S_DIR_TX);
 	if (!tx_cfg) {
 		return -EIO;
 	}
@@ -98,17 +105,21 @@ Z_SYSCALL_HANDLER(i2s_buf_write, dev, buf, size)
 		Z_OOPS(ret);
 	}
 
-	ret = i2s_write((struct device *)dev, mem_block, size);
+	ret = i2s_write((const struct device *)dev, mem_block, size);
 	if (ret != 0) {
 		k_mem_slab_free(tx_cfg->mem_slab, &mem_block);
 	}
 
 	return ret;
 }
+#include <syscalls/i2s_buf_write_mrsh.c>
 
-Z_SYSCALL_HANDLER(i2s_trigger, dev, dir, cmd)
+static inline int z_vrfy_i2s_trigger(const struct device *dev,
+				     enum i2s_dir dir,
+				     enum i2s_trigger_cmd cmd)
 {
 	Z_OOPS(Z_SYSCALL_DRIVER_I2S(dev, trigger));
 
-	return z_impl_i2s_trigger((struct device *)dev, dir, cmd);
+	return z_impl_i2s_trigger((const struct device *)dev, dir, cmd);
 }
+#include <syscalls/i2s_trigger_mrsh.c>

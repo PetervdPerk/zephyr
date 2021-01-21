@@ -12,7 +12,9 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(net_utils, CONFIG_NET_UTILS_LOG_LEVEL);
 
+#include <kernel.h>
 #include <stdlib.h>
+#include <syscall_handler.h>
 #include <zephyr/types.h>
 #include <stdbool.h>
 #include <string.h>
@@ -60,7 +62,7 @@ const char *net_proto2str(int family, int proto)
 	return "UNK_PROTO";
 }
 
-char *net_byte_to_hex(char *ptr, u8_t byte, char base, bool pad)
+char *net_byte_to_hex(char *ptr, uint8_t byte, char base, bool pad)
 {
 	int i, val;
 
@@ -80,10 +82,10 @@ char *net_byte_to_hex(char *ptr, u8_t byte, char base, bool pad)
 	return ptr;
 }
 
-char *net_sprint_ll_addr_buf(const u8_t *ll, u8_t ll_len,
+char *net_sprint_ll_addr_buf(const uint8_t *ll, uint8_t ll_len,
 			     char *buf, int buflen)
 {
-	u8_t i, len, blen;
+	uint8_t i, len, blen;
 	char *ptr = buf;
 
 	switch (ll_len) {
@@ -93,6 +95,9 @@ char *net_sprint_ll_addr_buf(const u8_t *ll, u8_t ll_len,
 	case 6:
 		len = 6U;
 		break;
+	case 2:
+		len = 2U;
+		break;
 	default:
 		len = 6U;
 		break;
@@ -101,7 +106,7 @@ char *net_sprint_ll_addr_buf(const u8_t *ll, u8_t ll_len,
 	for (i = 0U, blen = buflen; i < len && blen > 0; i++) {
 		ptr = net_byte_to_hex(ptr, (char)ll[i], 'A', true);
 		*ptr++ = ':';
-		blen -= 3;
+		blen -= 3U;
 	}
 
 	if (!(ptr - buf)) {
@@ -112,17 +117,19 @@ char *net_sprint_ll_addr_buf(const u8_t *ll, u8_t ll_len,
 	return buf;
 }
 
-static int net_value_to_udec(char *buf, u32_t value, int precision)
+static int net_value_to_udec(char *buf, uint32_t value, int precision)
 {
-	u32_t divisor;
+	uint32_t divisor;
 	int i;
 	int temp;
 	char *start = buf;
 
 	divisor = 1000000000U;
-	if (precision < 0)
+	if (precision < 0) {
 		precision = 1;
-	for (i = 9; i >= 0; i--, divisor /= 10) {
+	}
+
+	for (i = 9; i >= 0; i--, divisor /= 10U) {
 		temp = value / divisor;
 		value = value % divisor;
 		if ((precision > i) || (temp != 0)) {
@@ -135,28 +142,28 @@ static int net_value_to_udec(char *buf, u32_t value, int precision)
 	return buf - start;
 }
 
-char *net_addr_ntop(sa_family_t family, const void *src,
-		    char *dst, size_t size)
+char *z_impl_net_addr_ntop(sa_family_t family, const void *src,
+			   char *dst, size_t size)
 {
 	struct in_addr *addr;
 	struct in6_addr *addr6;
-	u16_t *w;
-	u8_t i, bl, bh, longest = 1U;
-	s8_t pos = -1;
+	uint16_t *w;
+	uint8_t i, bl, bh, longest = 1U;
+	int8_t pos = -1;
 	char delim = ':';
 	unsigned char zeros[8] = { 0 };
 	char *ptr = dst;
 	int len = -1;
-	u16_t value;
+	uint16_t value;
 	bool needcolon = false;
 
 	if (family == AF_INET6) {
 		addr6 = (struct in6_addr *)src;
-		w = (u16_t *)addr6->s6_addr16;
+		w = (uint16_t *)addr6->s6_addr16;
 		len = 8;
 
 		for (i = 0U; i < 8; i++) {
-			u8_t j;
+			uint8_t j;
 
 			for (j = i; j < 8; j++) {
 				if (UNALIGNED_GET(&w[j]) != 0) {
@@ -174,7 +181,7 @@ char *net_addr_ntop(sa_family_t family, const void *src,
 			}
 		}
 
-		if (longest == 1) {
+		if (longest == 1U) {
 			pos = -1;
 		}
 
@@ -189,12 +196,12 @@ char *net_addr_ntop(sa_family_t family, const void *src,
 	for (i = 0U; i < len; i++) {
 		/* IPv4 address a.b.c.d */
 		if (len == 4) {
-			u8_t l;
+			uint8_t l;
 
-			value = (u32_t)addr->s4_addr[i];
+			value = (uint32_t)addr->s4_addr[i];
 
 			/* net_byte_to_udec() eats 0 */
-			if (value == 0) {
+			if (value == 0U) {
 				*ptr++ = '0';
 				*ptr++ = delim;
 				continue;
@@ -210,13 +217,13 @@ char *net_addr_ntop(sa_family_t family, const void *src,
 
 		/* IPv6 address */
 		if (i == pos) {
-			if (needcolon || i == 0) {
+			if (needcolon || i == 0U) {
 				*ptr++ = ':';
 			}
 
 			*ptr++ = ':';
 			needcolon = false;
-			i += longest - 1;
+			i += longest - 1U;
 
 			continue;
 		}
@@ -226,7 +233,7 @@ char *net_addr_ntop(sa_family_t family, const void *src,
 			needcolon = false;
 		}
 
-		value = (u32_t)sys_be16_to_cpu(UNALIGNED_GET(&w[i]));
+		value = (uint32_t)sys_be16_to_cpu(UNALIGNED_GET(&w[i]));
 		bh = value >> 8;
 		bl = value & 0xff;
 
@@ -268,8 +275,44 @@ char *net_addr_ntop(sa_family_t family, const void *src,
 	return dst;
 }
 
-int net_addr_pton(sa_family_t family, const char *src,
-		  void *dst)
+#if defined(CONFIG_USERSPACE)
+char *z_vrfy_net_addr_ntop(sa_family_t family, const void *src,
+			   char *dst, size_t size)
+{
+	char str[INET6_ADDRSTRLEN];
+	struct in6_addr addr6;
+	struct in_addr addr4;
+	char *out;
+	const void *addr;
+
+	Z_OOPS(Z_SYSCALL_MEMORY_WRITE(dst, size));
+
+	if (family == AF_INET) {
+		Z_OOPS(z_user_from_copy(&addr4, (const void *)src,
+					sizeof(addr4)));
+		addr = &addr4;
+	} else if (family == AF_INET6) {
+		Z_OOPS(z_user_from_copy(&addr6, (const void *)src,
+					sizeof(addr6)));
+		addr = &addr6;
+	} else {
+		return 0;
+	}
+
+	out = z_impl_net_addr_ntop(family, addr, str, sizeof(str));
+	if (!out) {
+		return 0;
+	}
+
+	Z_OOPS(z_user_to_copy((void *)dst, str, MIN(size, sizeof(str))));
+
+	return dst;
+}
+#include <syscalls/net_addr_ntop_mrsh.c>
+#endif /* CONFIG_USERSPACE */
+
+int z_impl_net_addr_pton(sa_family_t family, const char *src,
+			 void *dst)
 {
 	if (family == AF_INET) {
 		struct in_addr *addr = (struct in_addr *)dst;
@@ -311,8 +354,9 @@ int net_addr_pton(sa_family_t family, const char *src,
 			if (!(src[i] >= '0' && src[i] <= '9') &&
 			    !(src[i] >= 'A' && src[i] <= 'F') &&
 			    !(src[i] >= 'a' && src[i] <= 'f') &&
-			    src[i] != '.' && src[i] != ':')
+			    src[i] != '.' && src[i] != ':') {
 				return -EINVAL;
+			}
 		}
 
 		for (i = 0; i < expected_groups; i++) {
@@ -400,10 +444,55 @@ int net_addr_pton(sa_family_t family, const char *src,
 	return 0;
 }
 
-static u16_t calc_chksum(u16_t sum, const u8_t *data, size_t len)
+#if defined(CONFIG_USERSPACE)
+int z_vrfy_net_addr_pton(sa_family_t family, const char *src,
+			 void *dst)
 {
-	const u8_t *end;
-	u16_t tmp;
+	char str[INET6_ADDRSTRLEN];
+	struct in6_addr addr6;
+	struct in_addr addr4;
+	void *addr;
+	size_t size;
+	size_t nlen;
+	int err;
+
+	if (family == AF_INET) {
+		size = sizeof(struct in_addr);
+		addr = &addr4;
+	} else if (family == AF_INET6) {
+		size = sizeof(struct in6_addr);
+		addr = &addr6;
+	} else {
+		return -EINVAL;
+	}
+
+	memset(str, 0, sizeof(str));
+
+	nlen = z_user_string_nlen((const char *)src, sizeof(str), &err);
+	if (err) {
+		return -EINVAL;
+	}
+
+	Z_OOPS(Z_SYSCALL_MEMORY_WRITE(dst, size));
+	Z_OOPS(Z_SYSCALL_MEMORY_READ(src, nlen));
+	Z_OOPS(z_user_from_copy(str, (const void *)src, nlen));
+
+	err = z_impl_net_addr_pton(family, str, addr);
+	if (err) {
+		return err;
+	}
+
+	Z_OOPS(z_user_to_copy((void *)dst, addr, size));
+
+	return 0;
+}
+#include <syscalls/net_addr_pton_mrsh.c>
+#endif /* CONFIG_USERSPACE */
+
+static uint16_t calc_chksum(uint16_t sum, const uint8_t *data, size_t len)
+{
+	const uint8_t *end;
+	uint16_t tmp;
 
 	end = data + len - 1;
 
@@ -428,7 +517,7 @@ static u16_t calc_chksum(u16_t sum, const u8_t *data, size_t len)
 	return sum;
 }
 
-static inline u16_t pkt_calc_chksum(struct net_pkt *pkt, u16_t sum)
+static inline uint16_t pkt_calc_chksum(struct net_pkt *pkt, uint16_t sum)
 {
 	struct net_pkt_cursor *cur = &pkt->cursor;
 	size_t len;
@@ -465,10 +554,10 @@ static inline u16_t pkt_calc_chksum(struct net_pkt *pkt, u16_t sum)
 	return sum;
 }
 
-u16_t net_calc_chksum(struct net_pkt *pkt, u8_t proto)
+uint16_t net_calc_chksum(struct net_pkt *pkt, uint8_t proto)
 {
 	size_t len = 0U;
-	u16_t sum = 0U;
+	uint16_t sum = 0U;
 	struct net_pkt_cursor backup;
 	bool ow;
 
@@ -477,7 +566,8 @@ u16_t net_calc_chksum(struct net_pkt *pkt, u8_t proto)
 		if (proto != IPPROTO_ICMP) {
 			len = 2 * sizeof(struct in_addr);
 			sum = net_pkt_get_len(pkt) -
-				net_pkt_ip_hdr_len(pkt) + proto;
+				net_pkt_ip_hdr_len(pkt) -
+				net_pkt_ipv4_opts_len(pkt) + proto;
 		}
 	} else if (IS_ENABLED(CONFIG_NET_IPV6) &&
 		   net_pkt_family(pkt) == AF_INET6) {
@@ -499,12 +589,11 @@ u16_t net_calc_chksum(struct net_pkt *pkt, u8_t proto)
 	net_pkt_skip(pkt, net_pkt_ip_hdr_len(pkt) - len);
 
 	sum = calc_chksum(sum, pkt->cursor.pos, len);
-
-	net_pkt_skip(pkt, len + net_pkt_ipv6_ext_len(pkt));
+	net_pkt_skip(pkt, len + net_pkt_ip_opts_len(pkt));
 
 	sum = pkt_calc_chksum(pkt, sum);
 
-	sum = (sum == 0) ? 0xffff : htons(sum);
+	sum = (sum == 0U) ? 0xffff : htons(sum);
 
 	net_pkt_cursor_restore(pkt, &backup);
 
@@ -514,20 +603,22 @@ u16_t net_calc_chksum(struct net_pkt *pkt, u8_t proto)
 }
 
 #if defined(CONFIG_NET_IPV4)
-u16_t net_calc_chksum_ipv4(struct net_pkt *pkt)
+uint16_t net_calc_chksum_ipv4(struct net_pkt *pkt)
 {
-	u16_t sum;
+	uint16_t sum;
 
-	sum = calc_chksum(0, pkt->buffer->data, net_pkt_ip_hdr_len(pkt));
+	sum = calc_chksum(0, pkt->buffer->data,
+			  net_pkt_ip_hdr_len(pkt) +
+			  net_pkt_ipv4_opts_len(pkt));
 
-	sum = (sum == 0) ? 0xffff : htons(sum);
+	sum = (sum == 0U) ? 0xffff : htons(sum);
 
 	return ~sum;
 }
 #endif /* CONFIG_NET_IPV4 */
 
 #if defined(CONFIG_NET_IPV6) || defined(CONFIG_NET_IPV4)
-static bool convert_port(const char *buf, u16_t *port)
+static bool convert_port(const char *buf, uint16_t *port)
 {
 	unsigned long tmp;
 	char *endptr;
@@ -553,7 +644,7 @@ static bool parse_ipv6(const char *str, size_t str_len,
 	struct in6_addr *addr6;
 	char ipaddr[INET6_ADDRSTRLEN + 1];
 	int end, len, ret, i;
-	u16_t port;
+	uint16_t port;
 
 	len = MIN(INET6_ADDRSTRLEN, str_len);
 
@@ -594,10 +685,22 @@ static bool parse_ipv6(const char *str, size_t str_len,
 	}
 
 	if ((ptr + 1) < (str + str_len) && *(ptr + 1) == ':') {
-		len = str_len - end;
+		/* -1 as end does not contain first [
+		 * -2 as pointer is advanced by 2, skipping ]:
+		 */
+		len = str_len - end - 1 - 2;
+
+		ptr += 2;
+
+		for (i = 0; i < len; i++) {
+			if (!ptr[i]) {
+				len = i;
+				break;
+			}
+		}
 
 		/* Re-use the ipaddr buf for port conversion */
-		memcpy(ipaddr, ptr + 2, len);
+		memcpy(ipaddr, ptr, len);
 		ipaddr[len] = '\0';
 
 		ret = convert_port(ipaddr, &port);
@@ -635,7 +738,7 @@ static bool parse_ipv4(const char *str, size_t str_len,
 	char ipaddr[NET_IPV4_ADDR_LEN + 1];
 	struct in_addr *addr4;
 	int end, len, ret, i;
-	u16_t port;
+	uint16_t port;
 
 	len = MIN(NET_IPV4_ADDR_LEN, str_len);
 
@@ -743,7 +846,7 @@ bool net_ipaddr_parse(const char *str, size_t str_len, struct sockaddr *addr)
 	return false;
 }
 
-int net_bytes_from_str(u8_t *buf, int buf_len, const char *src)
+int net_bytes_from_str(uint8_t *buf, int buf_len, const char *src)
 {
 	unsigned int i;
 	char *endptr;
@@ -765,4 +868,45 @@ int net_bytes_from_str(u8_t *buf, int buf_len, const char *src)
 	}
 
 	return 0;
+}
+
+const char *net_family2str(sa_family_t family)
+{
+	switch (family) {
+	case AF_UNSPEC:
+		return "AF_UNSPEC";
+	case AF_INET:
+		return "AF_INET";
+	case AF_INET6:
+		return "AF_INET6";
+	case AF_PACKET:
+		return "AF_PACKET";
+	case AF_CAN:
+		return "AF_CAN";
+	}
+
+	return NULL;
+}
+
+const struct in_addr *net_ipv4_unspecified_address(void)
+{
+	static const struct in_addr addr;
+
+	return &addr;
+}
+
+const struct in_addr *net_ipv4_broadcast_address(void)
+{
+	static const struct in_addr addr = { { { 255, 255, 255, 255 } } };
+
+	return &addr;
+}
+
+/* IPv6 wildcard and loopback address defined by RFC2553 */
+const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
+
+const struct in6_addr *net_ipv6_unspecified_address(void)
+{
+	return &in6addr_any;
 }

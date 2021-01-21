@@ -7,6 +7,9 @@
 #define ZEPHYR_INCLUDE_LOGGING_LOG_OUTPUT_H_
 
 #include <logging/log_msg.h>
+#include <sys/util.h>
+#include <stdarg.h>
+#include <sys/atomic.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,20 +46,28 @@ extern "C" {
  */
 #define LOG_OUTPUT_FLAG_FORMAT_SYSLOG		BIT(6)
 
+/** @brief Flag forcing syslog format specified in mipi sys-t
+ */
+#define LOG_OUTPUT_FLAG_FORMAT_SYST		BIT(7)
+
 /**
  * @brief Prototype of the function processing output data.
  *
- * @param data Data.
- * @param length Data length.
- * @param ctx  User context.
+ * @param buf The buffer data.
+ * @param size The buffer size.
+ * @param ctx User context.
  *
- * @return Number of bytes processed.
+ * @return Number of bytes processed, dropped or discarded.
+ *
+ * @note If the log output function cannot process all of the data, it is
+ *       its responsibility to mark them as dropped or discarded by returning
+ *       the corresponding number of bytes dropped or discarded to the caller.
  */
-typedef int (*log_output_func_t)(u8_t *buf, size_t size, void *ctx);
+typedef int (*log_output_func_t)(uint8_t *buf, size_t size, void *ctx);
 
 /* @brief Control block structure for log_output instance.  */
 struct log_output_control_block {
-	size_t offset;
+	atomic_t offset;
 	void *ctx;
 	const char *hostname;
 };
@@ -65,7 +76,7 @@ struct log_output_control_block {
 struct log_output {
 	log_output_func_t func;
 	struct log_output_control_block *control_block;
-	u8_t *buf;
+	uint8_t *buf;
 	size_t size;
 };
 
@@ -96,7 +107,7 @@ struct log_output {
  */
 void log_output_msg_process(const struct log_output *log_output,
 			    struct log_msg *msg,
-			    u32_t flags);
+			    uint32_t flags);
 
 /** @brief Process log string
  *
@@ -112,8 +123,8 @@ void log_output_msg_process(const struct log_output *log_output,
  *
  */
 void log_output_string(const struct log_output *log_output,
-		       struct log_msg_ids src_level, u32_t timestamp,
-		       const char *fmt, va_list ap, u32_t flags);
+		       struct log_msg_ids src_level, uint32_t timestamp,
+		       const char *fmt, va_list ap, uint32_t flags);
 
 /** @brief Process log hexdump
  *
@@ -130,9 +141,9 @@ void log_output_string(const struct log_output *log_output,
  *
  */
 void log_output_hexdump(const struct log_output *log_output,
-			     struct log_msg_ids src_level, u32_t timestamp,
-			     const char *metadata, const u8_t *data,
-			     u32_t length, u32_t flags);
+			     struct log_msg_ids src_level, uint32_t timestamp,
+			     const char *metadata, const uint8_t *data,
+			     uint32_t length, uint32_t flags);
 
 /** @brief Process dropped messages indication.
  *
@@ -141,7 +152,7 @@ void log_output_hexdump(const struct log_output *log_output,
  * @param log_output Pointer to the log output instance.
  * @param cnt        Number of dropped messages.
  */
-void log_output_dropped_process(const struct log_output *log_output, u32_t cnt);
+void log_output_dropped_process(const struct log_output *log_output, uint32_t cnt);
 
 /** @brief Flush output buffer.
  *
@@ -175,7 +186,7 @@ static inline void log_output_hostname_set(const struct log_output *log_output,
  *
  * @param freq Frequency in Hz.
  */
-void log_output_timestamp_freq_set(u32_t freq);
+void log_output_timestamp_freq_set(uint32_t freq);
 
 /**
  * @}

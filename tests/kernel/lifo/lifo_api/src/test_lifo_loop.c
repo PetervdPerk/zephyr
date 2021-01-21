@@ -37,7 +37,7 @@ static void tlifo_get(struct k_lifo *plifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry(void *p)
+static void tIsr_entry(const void *p)
 {
 	TC_PRINT("isr lifo get\n");
 	tlifo_get((struct k_lifo *)p);
@@ -62,11 +62,11 @@ static void tlifo_read_write(struct k_lifo *plifo)
 	/**TESTPOINT: thread-isr-thread data passing via lifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 		tThread_entry, plifo, NULL, NULL,
-		K_PRIO_PREEMPT(0), 0, 0);
+		K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 
 	TC_PRINT("main lifo put ---> ");
 	tlifo_put(plifo);
-	irq_offload(tIsr_entry, plifo);
+	irq_offload(tIsr_entry, (const void *)plifo);
 	k_sem_take(&end_sema, K_FOREVER);
 	k_sem_take(&end_sema, K_FOREVER);
 

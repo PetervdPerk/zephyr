@@ -93,6 +93,8 @@ The Zephyr nucleo_f103rb board configuration supports the following hardware fea
 +-----------+------------+-------------------------------------+
 | WATCHDOG  | on-chip    | independent watchdog                |
 +-----------+------------+-------------------------------------+
+| ADC       | on-chip    | ADC Controller                      |
++-----------+------------+-------------------------------------+
 
 Other hardware features are not yet supported in this Zephyr port.
 
@@ -122,6 +124,7 @@ Default Zephyr Peripheral Mapping:
 - UART_2 TX/RX : PA2/PA3 (ST-Link Virtual COM Port)
 - SPI1 NSS/SCK/MISO/MOSI : PA4/PA5/PA6/PA7 (Arduino SPI)
 - SPI2 SCK/MISO/MOSI : PB12/PB13/PB14/PB15
+- I2C1 SDA/SCL: PB9/PB8 (Arduino I2C)
 - PWM1_CH1: PA8
 - USER_PB : PC13
 - LD1 : PA5
@@ -160,7 +163,7 @@ You can debug an application in the usual way.  Here is an example for the
 :ref:`blinky-sample` application.
 
 .. zephyr-app-commands::
-   :zephyr-app: samples/basic-blinky
+   :zephyr-app: samples/basic/blinky
    :board: nucleo_f103rb
    :maybe-skip-config:
    :goals: debug

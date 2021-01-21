@@ -26,7 +26,7 @@ LOG_MODULE_REGISTER(tinycrypt);
 static struct tc_shim_drv_state tc_driver_state[CRYPTO_MAX_SESSION];
 
 static int do_cbc_encrypt(struct cipher_ctx *ctx, struct cipher_pkt *op,
-			  u8_t *iv)
+			  uint8_t *iv)
 {
 	struct tc_shim_drv_state *data =  ctx->drv_sessn_state;
 
@@ -46,12 +46,12 @@ static int do_cbc_encrypt(struct cipher_ctx *ctx, struct cipher_pkt *op,
 }
 
 static int do_cbc_decrypt(struct cipher_ctx *ctx, struct cipher_pkt *op,
-			  u8_t *iv)
+			  uint8_t *iv)
 {
 	struct tc_shim_drv_state *data =  ctx->drv_sessn_state;
 
 	/* TinyCrypt expects the IV and cipher text to be in a contiguous
-	 * buffer for efficieny
+	 * buffer for efficiency
 	 */
 	if (iv != op->in_buf) {
 		LOG_ERR("TC needs contiguous iv and ciphertext");
@@ -74,10 +74,10 @@ static int do_cbc_decrypt(struct cipher_ctx *ctx, struct cipher_pkt *op,
 }
 
 static int do_ctr_op(struct cipher_ctx *ctx, struct cipher_pkt *op,
-		     u8_t *iv)
+		     uint8_t *iv)
 {
 	struct tc_shim_drv_state *data =  ctx->drv_sessn_state;
-	u8_t ctr[16] = {0};	/* CTR mode Counter =  iv:ctr */
+	uint8_t ctr[16] = {0};	/* CTR mode Counter =  iv:ctr */
 	int ivlen = ctx->keylen - (ctx->mode_params.ctr_info.ctr_len >> 3);
 
 	/* Tinycrypt takes the last 4 bytes of the counter parameter as the
@@ -99,7 +99,7 @@ static int do_ctr_op(struct cipher_ctx *ctx, struct cipher_pkt *op,
 }
 
 static int do_ccm_encrypt_mac(struct cipher_ctx *ctx,
-			     struct cipher_aead_pkt *aead_op, u8_t *nonce)
+			     struct cipher_aead_pkt *aead_op, uint8_t *nonce)
 {
 	struct tc_ccm_mode_struct ccm;
 	struct tc_shim_drv_state *data =  ctx->drv_sessn_state;
@@ -125,7 +125,9 @@ static int do_ccm_encrypt_mac(struct cipher_ctx *ctx,
 	 * of this and provide sufficient buffer space in output buffer to hold
 	 * both encrypted output and hash
 	 */
-	aead_op->tag = op->out_buf + op->in_len;
+	if (aead_op->tag) {
+		memcpy(aead_op->tag, op->out_buf + op->in_len, ccm.mlen);
+	}
 
 	/* Before returning TC_CRYPTO_SUCCESS, tc_ccm_generation_encryption()
 	 * will advance the output buffer pointer by op->in_len bytes,
@@ -137,7 +139,7 @@ static int do_ccm_encrypt_mac(struct cipher_ctx *ctx,
 }
 
 static int do_ccm_decrypt_auth(struct cipher_ctx *ctx,
-			       struct cipher_aead_pkt *aead_op, u8_t *nonce)
+			       struct cipher_aead_pkt *aead_op, uint8_t *nonce)
 {
 	struct tc_ccm_mode_struct ccm;
 	struct tc_shim_drv_state *data =  ctx->drv_sessn_state;
@@ -188,9 +190,9 @@ static int get_unused_session(void)
 	return i;
 }
 
-static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
-		     enum cipher_algo algo, enum cipher_mode mode,
-		     enum cipher_op op_type)
+static int tc_session_setup(const struct device *dev, struct cipher_ctx *ctx,
+			    enum cipher_algo algo, enum cipher_mode mode,
+			    enum cipher_op op_type)
 {
 	struct tc_shim_drv_state *data;
 	int idx;
@@ -223,7 +225,7 @@ static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
 			ctx->ops.cbc_crypt_hndlr = do_cbc_encrypt;
 			break;
 		case CRYPTO_CIPHER_MODE_CTR:
-			if (ctx->mode_params.ctr_info.ctr_len != 32) {
+			if (ctx->mode_params.ctr_info.ctr_len != 32U) {
 				LOG_ERR("Tinycrypt supports only 32 bit "
 					    "counter");
 				return -EINVAL;
@@ -244,7 +246,7 @@ static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
 			break;
 		case CRYPTO_CIPHER_MODE_CTR:
 			/* Maybe validate CTR length */
-			if (ctx->mode_params.ctr_info.ctr_len != 32) {
+			if (ctx->mode_params.ctr_info.ctr_len != 32U) {
 				LOG_ERR("Tinycrypt supports only 32 bit "
 					    "counter");
 				return -EINVAL;
@@ -284,12 +286,12 @@ static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
 	return 0;
 }
 
-static int tc_query_caps(struct device *dev)
+static int tc_query_caps(const struct device *dev)
 {
 	return (CAP_RAW_KEY | CAP_SEPARATE_IO_BUFS | CAP_SYNC_OPS);
 }
 
-static int tc_session_free(struct device *dev, struct cipher_ctx *sessn)
+static int tc_session_free(const struct device *dev, struct cipher_ctx *sessn)
 {
 	struct tc_shim_drv_state *data =  sessn->drv_sessn_state;
 
@@ -300,7 +302,7 @@ static int tc_session_free(struct device *dev, struct cipher_ctx *sessn)
 	return 0;
 }
 
-static int tc_shim_init(struct device *dev)
+static int tc_shim_init(const struct device *dev)
 {
 	int i;
 
@@ -319,7 +321,7 @@ static struct crypto_driver_api crypto_enc_funcs = {
 	.query_hw_caps = tc_query_caps,
 };
 
-DEVICE_AND_API_INIT(crypto_tinycrypt, CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME,
-		    &tc_shim_init, NULL, NULL,
+DEVICE_DEFINE(crypto_tinycrypt, CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME,
+		    &tc_shim_init, device_pm_control_nop, NULL, NULL,
 		    POST_KERNEL, CONFIG_CRYPTO_INIT_PRIORITY,
 		    (void *)&crypto_enc_funcs);

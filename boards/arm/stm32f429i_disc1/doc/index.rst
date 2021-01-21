@@ -1,7 +1,7 @@
 .. _stm32f429i_disc1_board:
 
-ST STM32F429I-DISC1 Discovery board
-###################################
+ST STM32F429I Discovery
+#######################
 
 Overview
 ********
@@ -93,6 +93,10 @@ The Zephyr stm32f429i_disc1 board configuration supports the following hardware 
 +-----------+------------+-------------------------------------+
 | PWM       | on-chip    | pwm                                 |
 +-----------+------------+-------------------------------------+
+| I2C       | on-chip    | i2c                                 |
++-----------+------------+-------------------------------------+
+| SPI       | on-chip    | spi                                 |
++-----------+------------+-------------------------------------+
 
 Other hardware features are not yet supported on Zephyr porting.
 
@@ -118,6 +122,16 @@ Default Zephyr Peripheral Mapping:
 - USER_PB : PA0
 - LD3 : PG13
 - LD4 : PG12
+- I2C_1_SCL : PB8
+- I2C_1_SDA : PB9
+- I2C_2_SCL : PB10
+- I2C_2_SDA : PB11
+- I2C_3_SCL : PA8
+- I2C_3_SDA : PC9
+- SPI_5_CS : PF6
+- SPI_5_SCK : PF7
+- SPI_5_MISO : PF8
+- SPI_5_MOSI : PF9
 
 System Clock
 ============

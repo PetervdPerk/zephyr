@@ -1,31 +1,46 @@
-#
 # Copyright (c) 2018, Aapo Vienamo
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: Semtech SX1509B I2C GPIO
-version: 0.1
 
-description: >
-        This is a representation of the SX1509B GPIO node
+description: SX1509B GPIO node
 
-inherits:
-    !include i2c-device.yaml
+compatible: "semtech,sx1509b"
+
+include: [i2c-device.yaml, gpio-controller.yaml]
 
 properties:
-    compatible:
-      constraint: "semtech,sx1509b"
-
     label:
-      type: string
-      category: required
-      description: Human readable string describing the device (used by Zephyr for API name)
-      generation: define
+      required: true
 
-cell_string: GPIO
+    "#gpio-cells":
+      const: 2
 
-"#cells":
+    ngpios:
+      required: true
+      const: 16
+
+    nint-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        Connection for the NINT signal. This signal is active-low when
+        produced by sx1509b GPIO node.
+
+    init-out-low:
+      type: int
+      required: false
+      default: 0
+      description: |
+        Bit mask identifying pins that should be initialized as outputs
+        driven low.
+
+    init-out-high:
+      type: int
+      required: false
+      default: 0
+      description: |
+        Bit mask identifying pins that should be initialized as outputs
+        driven high.
+
+gpio-cells:
   - pin
   - flags
-...

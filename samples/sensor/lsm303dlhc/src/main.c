@@ -6,14 +6,15 @@
 
 #include <zephyr.h>
 #include <device.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <stdio.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
-static s32_t read_sensor(struct device *sensor, enum sensor_channel channel)
+static int32_t read_sensor(const struct device *sensor,
+			   enum sensor_channel channel)
 {
 	struct sensor_value val[3];
-	s32_t ret = 0;
+	int32_t ret = 0;
 
 	ret = sensor_sample_fetch(sensor);
 	if (ret < 0 && ret != -EBADMSG) {
@@ -37,20 +38,20 @@ end:
 
 void main(void)
 {
-	struct device *accelerometer = device_get_binding(
-						DT_ST_LIS2DH_0_LABEL);
-	struct device *magnetometer = device_get_binding(
-						DT_ST_LSM303DLHC_MAGN_0_LABEL);
+	const struct device *accelerometer = device_get_binding(
+						DT_LABEL(DT_INST(0, st_lis2dh)));
+	const struct device *magnetometer = device_get_binding(
+						DT_LABEL(DT_INST(0, st_lsm303dlhc_magn)));
 
 	if (accelerometer == NULL) {
 		printf("Could not get %s device\n",
-				DT_ST_LIS2DH_0_LABEL);
+				DT_LABEL(DT_INST(0, st_lis2dh)));
 		return;
 	}
 
 	if (magnetometer == NULL) {
 		printf("Could not get %s device\n",
-				DT_ST_LSM303DLHC_MAGN_0_LABEL);
+				DT_LABEL(DT_INST(0, st_lsm303dlhc_magn)));
 		return;
 	}
 
@@ -65,6 +66,6 @@ void main(void)
 			printf("Failed to read accelerometer data\n");
 		}
 
-		k_sleep(2000);
+		k_sleep(K_MSEC(2000));
 	}
 }

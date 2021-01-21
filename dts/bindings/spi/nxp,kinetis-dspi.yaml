@@ -1,37 +1,39 @@
-#
 # Copyright (c) 2018, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: NXP DSPI
-version: 0.1
 
-description: >
-    This binding gives a base representation of the NXP Kinetis DSPI controller
+description: NXP Kinetis DSPI controller
 
-inherits:
-    !include spi.yaml
+compatible: "nxp,kinetis-dspi"
+
+include: spi-controller.yaml
 
 properties:
-    compatible:
-      constraint: "nxp,kinetis-dspi"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
 
     clocks:
-      type: array
-      category: required
-      description: Clock gate information
-      generation: define
-...
+      required: true
+
+    pcs-sck-delay:
+      type: int
+      required: false
+      description: |
+        Delay in nanoseconds from the chip select assert to the first clock
+        edge. If not set, the minimum supported delay is used.
+
+    sck-pcs-delay:
+      type: int
+      required: false
+      description: |
+        Delay in nanoseconds from the last clock edge to the chip select
+        deassert. If not set, the minimum supported delay is used.
+
+    transfer-delay:
+      type: int
+      required: false
+      description: |
+        Delay in nanoseconds from the chip select deassert to the next chip
+        select assert. If not set, the minimum supported delay is used.

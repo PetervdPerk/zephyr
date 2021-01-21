@@ -37,7 +37,7 @@ static void tfifo_get(struct k_fifo *pfifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry(void *p)
+static void tIsr_entry(const void *p)
 {
 	TC_PRINT("isr fifo get\n");
 	tfifo_get((struct k_fifo *)p);
@@ -62,7 +62,7 @@ static void tfifo_read_write(struct k_fifo *pfifo)
 	/**TESTPOINT: thread-isr-thread data passing via fifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 				      tThread_entry, pfifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 
 	TC_PRINT("main fifo put ---> ");
 	tfifo_put(pfifo);

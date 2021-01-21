@@ -6,7 +6,7 @@
 
 #include "settings_test.h"
 #include "settings/settings_fcb.h"
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 #define NAME_DELETABLE "4/deletable"
 
@@ -23,12 +23,12 @@ struct flash_sector fcb_small_sectors[2] = {
 
 struct deletable_s {
 	bool valid;
-	u32_t val32;
+	uint32_t val32;
 } deletable_val;
 
-u32_t val4v2;
+uint32_t val4v2;
 
-int c4_handle_export(int (*cb)(const char *name, void *value, size_t val_len));
+int c4_handle_export(int (*cb)(const char *name, const void *value, size_t val_len));
 
 struct settings_handler c4_test_handler = {
 	.name = "4",
@@ -38,7 +38,7 @@ struct settings_handler c4_test_handler = {
 	.h_export = c4_handle_export
 };
 
-int c4_handle_export(int (*cb)(const char *name, void *value, size_t val_len))
+int c4_handle_export(int (*cb)(const char *name, const void *value, size_t val_len))
 {
 	if (deletable_val.valid) {
 		(void)cb(NAME_DELETABLE, &deletable_val.val32,
@@ -128,4 +128,3 @@ void test_config_compress_deleted(void)
 	rc = fcb_walk(&cf.cf_fcb, &fcb_small_sectors[1], check_compressed_cb,
 		      NULL);
 }
-

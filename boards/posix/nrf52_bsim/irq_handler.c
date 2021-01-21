@@ -17,12 +17,12 @@
 #include "sw_isr_table.h"
 #include "soc.h"
 #include "bs_tracing.h"
-#include <tracing.h>
+#include <tracing/tracing.h>
 #include "bstests.h"
 
 static bool CPU_will_be_awaken_from_WFE;
 
-typedef void (*normal_irq_f_ptr)(void *);
+typedef void (*normal_irq_f_ptr)(const void *);
 typedef int (*direct_irq_f_ptr)(void);
 
 static struct _isr_list irq_vector_table[NRF_HW_NBR_IRQs];
@@ -85,11 +85,6 @@ static inline void vector_to_irq(int irq_nbr, int *may_swap)
 	bs_trace_raw_time(6, "Vectoring to irq %i (%s)\n", irq_nbr,
 			  irqnames[irq_nbr]);
 
-	/*
-	 * As in this architecture an irq (code) executes in 0 time,
-	 * it is a bit senseless to call z_int_latency_start/stop()
-	 */
-	/* z_int_latency_start(); */
 	sys_trace_isr_enter();
 
 	if (irq_vector_table[irq_nbr].func == NULL) { /* LCOV_EXCL_BR_LINE */
@@ -103,7 +98,7 @@ static inline void vector_to_irq(int irq_nbr, int *may_swap)
 			*may_swap |= ((direct_irq_f_ptr)
 					irq_vector_table[irq_nbr].func)();
 		} else {
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
+#ifdef CONFIG_PM
 			posix_irq_check_idle_exit();
 #endif
 			((normal_irq_f_ptr)irq_vector_table[irq_nbr].func)
@@ -113,7 +108,6 @@ static inline void vector_to_irq(int irq_nbr, int *may_swap)
 	}
 
 	sys_trace_isr_exit();
-	/* z_int_latency_stop(); */
 
 	bs_trace_raw_time(7, "Irq %i (%s) ended\n", irq_nbr, irqnames[irq_nbr]);
 }
@@ -128,7 +122,7 @@ static inline void vector_to_irq(int irq_nbr, int *may_swap)
  */
 void posix_irq_handler(void)
 {
-	u64_t irq_lock;
+	uint64_t irq_lock;
 	int irq_nbr;
 	static int may_swap;
 
@@ -139,11 +133,11 @@ void posix_irq_handler(void)
 		return;
 	}
 
-	if (_kernel.nested == 0) {
+	if (_kernel.cpus[0].nested == 0) {
 		may_swap = 0;
 	}
 
-	_kernel.nested++;
+	_kernel.cpus[0].nested++;
 
 	while ((irq_nbr = hw_irq_ctrl_get_highest_prio_irq()) != -1) {
 		int last_current_running_prio = hw_irq_ctrl_get_cur_prio();
@@ -159,7 +153,7 @@ void posix_irq_handler(void)
 		hw_irq_ctrl_set_cur_prio(last_current_running_prio);
 	}
 
-	_kernel.nested--;
+	_kernel.cpus[0].nested--;
 
 	/* Call swap if all the following is true:
 	 * 1) may_swap was enabled
@@ -236,11 +230,6 @@ unsigned int posix_irq_lock(void)
 	return hw_irq_ctrl_change_lock(true);
 }
 
-unsigned int z_arch_irq_lock(void)
-{
-	return posix_irq_lock();
-}
-
 /**
  *
  * @brief Enable all interrupts on the CPU
@@ -259,35 +248,24 @@ void posix_irq_unlock(unsigned int key)
 	hw_irq_ctrl_change_lock(key);
 }
 
-void z_arch_irq_unlock(unsigned int key)
-{
-	posix_irq_unlock(key);
-}
-
-
 void posix_irq_full_unlock(void)
 {
 	hw_irq_ctrl_change_lock(false);
 }
 
-void z_arch_irq_enable(unsigned int irq)
+void posix_irq_enable(unsigned int irq)
 {
 	hw_irq_ctrl_enable_irq(irq);
 }
 
-void z_arch_irq_disable(unsigned int irq)
+void posix_irq_disable(unsigned int irq)
 {
 	hw_irq_ctrl_disable_irq(irq);
 }
 
-int z_arch_irq_is_enabled(unsigned int irq)
+int posix_irq_is_enabled(unsigned int irq)
 {
 	return hw_irq_ctrl_is_irq_enabled(irq);
-}
-
-void z_arch_isr_direct_header(void)
-{
-	/* Nothing to be done */
 }
 
 int posix_get_current_irq(void)
@@ -298,8 +276,8 @@ int posix_get_current_irq(void)
 /**
  * Configure a static interrupt.
  *
- * _isr_declare will populate the interrupt table table with the interrupt's
- * parameters, the vector table and the software ISR table.
+ * posix_isr_declare will populate the interrupt table table with the
+ * interrupt's parameters, the vector table and the software ISR table.
  *
  * We additionally set the priority in the interrupt controller at
  * runtime.
@@ -310,8 +288,8 @@ int posix_get_current_irq(void)
  * @param isr_param_p ISR parameter
  * @param flags_p IRQ options
  */
-void _isr_declare(unsigned int irq_p, int flags, void isr_p(void *),
-		void *isr_param_p)
+void posix_isr_declare(unsigned int irq_p, int flags, void isr_p(const void *),
+		       const void *isr_param_p)
 {
 	irq_vector_table[irq_p].irq   = irq_p;
 	irq_vector_table[irq_p].func  = isr_p;
@@ -328,7 +306,7 @@ void _isr_declare(unsigned int irq_p, int flags, void isr_p(void *),
  *
  * @return N/A
  */
-void z_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
+void posix_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
 {
 	hw_irq_ctrl_prio_set(irq, prio);
 }
@@ -355,16 +333,17 @@ void posix_sw_clear_pending_IRQ(unsigned int IRQn)
 	hw_irq_ctrl_clear_irq(IRQn);
 }
 
+#ifdef CONFIG_IRQ_OFFLOAD
 /**
  * Storage for functions offloaded to IRQ
  */
-static irq_offload_routine_t off_routine;
-static void *off_parameter;
+static void (*off_routine)(const void *);
+static const void *off_parameter;
 
 /**
  * IRQ handler for the SW interrupt assigned to irq_offload()
  */
-static void offload_sw_irq_handler(void *a)
+static void offload_sw_irq_handler(const void *a)
 {
 	ARG_UNUSED(a);
 	off_routine(off_parameter);
@@ -375,38 +354,16 @@ static void offload_sw_irq_handler(void *a)
  *
  * Raise the SW IRQ assigned to handled this
  */
-void irq_offload(irq_offload_routine_t routine, void *parameter)
+void posix_irq_offload(void (*routine)(const void *), const void *parameter)
 {
 	off_routine = routine;
 	off_parameter = parameter;
-	_isr_declare(OFFLOAD_SW_IRQ, 0, offload_sw_irq_handler, NULL);
-	z_arch_irq_enable(OFFLOAD_SW_IRQ);
+	posix_isr_declare(OFFLOAD_SW_IRQ, 0, offload_sw_irq_handler, NULL);
+	posix_irq_enable(OFFLOAD_SW_IRQ);
 	posix_sw_set_pending_IRQ(OFFLOAD_SW_IRQ);
-	z_arch_irq_disable(OFFLOAD_SW_IRQ);
+	posix_irq_disable(OFFLOAD_SW_IRQ);
 }
-
-/**
- * Replacement for ARMs NVIC_SetPendingIRQ()
- *
- * Sets the interrupt IRQn as pending
- * Note:
- * This will interrupt immediately if the interrupt
- * is not masked and irqs are not locked, and this interrupt is higher
- * priority than a possibly currently running interrupt
- */
-void NVIC_SetPendingIRQ(IRQn_Type IRQn)
-{
-	hw_irq_ctrl_raise_im_from_sw(IRQn);
-}
-
-/**
- *  Replacement for ARMs NVIC_ClearPendingIRQ()
- *  Clear pending interrupt IRQn
- */
-void NVIC_ClearPendingIRQ(IRQn_Type IRQn)
-{
-	hw_irq_ctrl_clear_irq(IRQn);
-}
+#endif
 
 /*
  * Very simple model of the WFE and SEV ARM instructions
@@ -422,6 +379,11 @@ void __WFE(void)
 		CPU_will_be_awaken_from_WFE = false;
 	}
 	CPU_event_set_flag = false;
+}
+
+void __WFI(void)
+{
+	__WFE();
 }
 
 void __SEV(void)

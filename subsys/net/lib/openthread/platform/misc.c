@@ -5,7 +5,7 @@
  */
 
 #include <kernel.h>
-#include <misc/reboot.h>
+#include <power/reboot.h>
 #include <openthread/instance.h>
 #include <openthread/platform/misc.h>
 
@@ -24,4 +24,9 @@ otPlatResetReason otPlatGetResetReason(otInstance *aInstance)
 	ARG_UNUSED(aInstance);
 
 	return OT_PLAT_RESET_REASON_POWER_ON;
+}
+
+void otPlatWakeHost(void)
+{
+	/* TODO */
 }

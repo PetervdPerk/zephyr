@@ -11,12 +11,9 @@
  * Linker script for the Cortex-M platforms.
  */
 
-#define _LINKER
-#define _ASMLANGUAGE
-
 #include <autoconf.h>
 #include <linker/sections.h>
-#include <generated_dts_board.h>
+#include <devicetree.h>
 
 #include <linker/linker-defs.h>
 #include <linker/linker-tool.h>
@@ -29,6 +26,7 @@
   #define _SRAM2_DATA_SECTION_NAME  .sram2_data
   #define _SRAM2_BSS_SECTION_NAME   .sram2_bss
   #define _SRAM2_TEXT_SECTION_NAME  .sram2_text
+  #define SRAM2_ADDR  (CONFIG_SRAM_BASE_ADDRESS + RAM_SIZE2)
 #endif
 
 #define RAM_SIZE2 (CONFIG_SRAM_SIZE * 512)
@@ -39,4 +37,4 @@ MEMORY
 #endif
     }
 
-#include <arch/arm/cortex_m/scripts/linker.ld>
+#include <arch/arm/aarch32/cortex_m/scripts/linker.ld>

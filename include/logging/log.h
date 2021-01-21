@@ -28,12 +28,6 @@ extern "C" {
  * @{
  */
 
-#define LOG_LEVEL_NONE 0
-#define LOG_LEVEL_ERR  1
-#define LOG_LEVEL_WRN  2
-#define LOG_LEVEL_INF  3
-#define LOG_LEVEL_DBG  4
-
 /**
  * @brief Writes an ERROR level message to the log.
  *
@@ -247,6 +241,7 @@ extern "C" {
 #define LOG_INST_HEXDUMP_DBG(_log_inst, _data, _length, _str)	\
 	Z_LOG_HEXDUMP_INSTANCE(LOG_LEVEL_DBG, _log_inst, _data, _length, _str)
 
+#ifndef CONFIG_LOG_MINIMAL
 /**
  * @brief Writes an formatted string to the log.
  *
@@ -257,10 +252,8 @@ extern "C" {
  *
  * @param fmt Formatted string to output.
  * @param ap  Variable parameters.
- *
- * return Number of bytes written.
  */
-int log_printk(const char *fmt, va_list ap);
+void log_printk(const char *fmt, va_list ap);
 
 /** @brief Copy transient string to a buffer from internal, logger pool.
  *
@@ -268,14 +261,34 @@ int log_printk(const char *fmt, va_list ap);
  * Logger allocates a buffer and copies input string returning a pointer to the
  * copy. Logger ensures that buffer is freed when logger message is freed.
  *
+ * Depending on configuration, this function may do nothing and just pass
+ * along the supplied string pointer. Do not rely on this function to always
+ * make a copy!
+ *
  * @param str Transient string.
  *
  * @return Copy of the string or default string if buffer could not be
  *	   allocated. String may be truncated if input string does not fit in
- *	   a buffer from the pool (see CONFIG_LOG_STRDUP_MAX_STRING).
+ *	   a buffer from the pool (see CONFIG_LOG_STRDUP_MAX_STRING). In
+ *	   some configurations, the original string pointer is returned.
  */
 char *log_strdup(const char *str);
+#else
+static inline void log_printk(const char *fmt, va_list ap)
+{
+	vprintk(fmt, ap);
+}
 
+static inline char *log_strdup(const char *str)
+{
+	return (char *)str;
+}
+#endif /* CONFIG_LOG_MINIMAL */
+
+#ifdef __cplusplus
+}
+#define LOG_IN_CPLUSPLUS 1
+#endif
 /* Macro expects that optionally on second argument local log level is provided.
  * If provided it is returned, otherwise default log level is returned or
  * LOG_LEVEL, if it was locally defined.
@@ -285,15 +298,15 @@ char *log_strdup(const char *str);
 #else
 #define _LOG_LEVEL_RESOLVE(...) \
 	Z_LOG_EVAL(LOG_LEVEL, \
-		  (GET_ARG2(__VA_ARGS__, LOG_LEVEL)), \
-		  (GET_ARG2(__VA_ARGS__, CONFIG_LOG_DEFAULT_LEVEL)))
+		  (GET_ARG_N(2, __VA_ARGS__, LOG_LEVEL)), \
+		  (GET_ARG_N(2, __VA_ARGS__, CONFIG_LOG_DEFAULT_LEVEL)))
 #endif
 
 /* Return first argument */
 #define _LOG_ARG1(arg1, ...) arg1
 
-
 #define _LOG_MODULE_CONST_DATA_CREATE(_name, _level)			     \
+	IF_ENABLED(LOG_IN_CPLUSPLUS, (extern))				     \
 	const struct log_source_const_data LOG_ITEM_CONST_DATA(_name)	     \
 	__attribute__ ((section("." STRINGIFY(LOG_ITEM_CONST_DATA(_name))))) \
 	__attribute__((used)) = {					     \
@@ -309,11 +322,8 @@ char *log_strdup(const char *str);
 	__attribute__((used))
 
 #define _LOG_MODULE_DYNAMIC_DATA_COND_CREATE(_name)		\
-	Z_LOG_EVAL(						\
-		IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING),	\
-		(_LOG_MODULE_DYNAMIC_DATA_CREATE(_name);),	\
-		()						\
-		)
+	IF_ENABLED(CONFIG_LOG_RUNTIME_FILTERING,		\
+		  (_LOG_MODULE_DYNAMIC_DATA_CREATE(_name);))
 
 #define _LOG_MODULE_DATA_CREATE(_name, _level)			\
 	_LOG_MODULE_CONST_DATA_CREATE(_name, _level);		\
@@ -351,11 +361,10 @@ char *log_strdup(const char *str);
  * @see LOG_MODULE_DECLARE
  */
 
-
 #define LOG_MODULE_REGISTER(...)					\
 	Z_LOG_EVAL(							\
 		_LOG_LEVEL_RESOLVE(__VA_ARGS__),			\
-		(_LOG_MODULE_DATA_CREATE(GET_ARG1(__VA_ARGS__),		\
+		(_LOG_MODULE_DATA_CREATE(GET_ARG_N(1, __VA_ARGS__),	\
 				      _LOG_LEVEL_RESOLVE(__VA_ARGS__))),\
 		()/*Empty*/						\
 	)								\
@@ -389,22 +398,24 @@ char *log_strdup(const char *str);
  */
 #define LOG_MODULE_DECLARE(...)						      \
 	extern const struct log_source_const_data			      \
-			LOG_ITEM_CONST_DATA(GET_ARG1(__VA_ARGS__));	      \
+			LOG_ITEM_CONST_DATA(GET_ARG_N(1, __VA_ARGS__));	      \
 	extern struct log_source_dynamic_data				      \
-			LOG_ITEM_DYNAMIC_DATA(GET_ARG1(__VA_ARGS__));	      \
+			LOG_ITEM_DYNAMIC_DATA(GET_ARG_N(1, __VA_ARGS__));     \
 									      \
 	static const struct log_source_const_data *			      \
-		__log_current_const_data __attribute__((unused)) =	      \
+		__log_current_const_data __unused =			      \
 			_LOG_LEVEL_RESOLVE(__VA_ARGS__) ?		      \
-			&LOG_ITEM_CONST_DATA(GET_ARG1(__VA_ARGS__)) : NULL;   \
+			&LOG_ITEM_CONST_DATA(GET_ARG_N(1, __VA_ARGS__)) :     \
+			NULL;						      \
 									      \
 	static struct log_source_dynamic_data *				      \
-		__log_current_dynamic_data __attribute__((unused)) =	      \
+		__log_current_dynamic_data __unused =			      \
 			(_LOG_LEVEL_RESOLVE(__VA_ARGS__) &&		      \
 			IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) ?	      \
-			&LOG_ITEM_DYNAMIC_DATA(GET_ARG1(__VA_ARGS__)) : NULL; \
+			&LOG_ITEM_DYNAMIC_DATA(GET_ARG_N(1, __VA_ARGS__)) :   \
+			NULL;						      \
 									      \
-	static const u32_t __log_level __attribute__((unused)) =	      \
+	static const uint32_t __log_level __unused =			      \
 					_LOG_LEVEL_RESOLVE(__VA_ARGS__)
 
 /**
@@ -414,16 +425,11 @@ char *log_strdup(const char *str);
  * @param level Level used in file or in function.
  *
  */
-#define LOG_LEVEL_SET(level) \
-	static const u32_t __log_level __attribute__((unused)) = level
+#define LOG_LEVEL_SET(level) static const uint32_t __log_level __unused = \
+				Z_LOG_RESOLVED_LEVEL(level, 0)
 
 /**
  * @}
  */
-
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ZEPHYR_INCLUDE_LOGGING_LOG_H_ */

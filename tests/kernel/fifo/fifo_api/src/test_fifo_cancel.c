@@ -18,7 +18,7 @@ static struct k_thread thread;
 
 static void t_cancel_wait_entry(void *p1, void *p2, void *p3)
 {
-	k_sleep(50);
+	k_sleep(K_MSEC(50));
 	k_fifo_cancel_wait((struct k_fifo *)p1);
 }
 
@@ -26,10 +26,10 @@ static void tfifo_thread_thread(struct k_fifo *pfifo)
 {
 	k_tid_t tid = k_thread_create(&thread, tstack, STACK_SIZE,
 				      t_cancel_wait_entry, pfifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
-	u32_t start_t = k_uptime_get_32();
-	void *ret = k_fifo_get(pfifo, 500);
-	u32_t dur = k_uptime_get_32() - start_t;
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
+	uint32_t start_t = k_uptime_get_32();
+	void *ret = k_fifo_get(pfifo, K_MSEC(500));
+	uint32_t dur = k_uptime_get_32() - start_t;
 
 	/* While we observed the side effect of the last statement
 	 * ( call to k_fifo_cancel_wait) of the thread, it's not fact

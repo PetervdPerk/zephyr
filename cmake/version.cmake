@@ -1,3 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+
+#.rst:
+# version.cmake
+# -------------
+#
+# Inputs:
+#
+#   ``*VERSION*`` and other constants set by
+#   maintainers in ``${ZEPHYR_BASE}/VERSION``
+#
+# Outputs with examples::
+#
+#   PROJECT_VERSION           1.14.99.07
+#   KERNEL_VERSION_STRING    "1.14.99-extraver"
+#
+#   KERNEL_VERSION_MAJOR       1
+#   KERNEL_VERSION_MINOR        14
+#   KERNEL_PATCHLEVEL             99
+#   KERNELVERSION            0x10E6307
+#   KERNEL_VERSION_NUMBER    0x10E63
+#   ZEPHYR_VERSION_CODE        69219
+#
+# Most outputs are converted to C macros, see ``version.h.in``
+#
+# See also: independent and more dynamic ``BUILD_VERSION`` in
+# ``git.cmake``.
+
+
 include(${ZEPHYR_BASE}/cmake/hex.cmake)
 file(READ ${ZEPHYR_BASE}/VERSION ver)
 
@@ -19,13 +48,22 @@ set(PROJECT_VERSION_EXTRA ${CMAKE_MATCH_1})
 # Temporary convenience variable
 set(PROJECT_VERSION_WITHOUT_TWEAK ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH})
 
+
+if(PROJECT_VERSION_EXTRA)
+  set(PROJECT_VERSION_EXTRA_STR "-${PROJECT_VERSION_EXTRA}")
+endif()
+
 if(PROJECT_VERSION_TWEAK)
   set(PROJECT_VERSION ${PROJECT_VERSION_WITHOUT_TWEAK}.${PROJECT_VERSION_TWEAK})
 else()
   set(PROJECT_VERSION ${PROJECT_VERSION_WITHOUT_TWEAK})
 endif()
 
-message("Zephyr version: ${PROJECT_VERSION}")
+set(PROJECT_VERSION_STR ${PROJECT_VERSION}${PROJECT_VERSION_EXTRA_STR})
+
+if (NOT NO_PRINT_VERSION)
+  message(STATUS "Zephyr version: ${PROJECT_VERSION_STR} (${ZEPHYR_BASE})")
+endif()
 
 set(MAJOR ${PROJECT_VERSION_MAJOR}) # Temporary convenience variable
 set(MINOR ${PROJECT_VERSION_MINOR}) # Temporary convenience variable

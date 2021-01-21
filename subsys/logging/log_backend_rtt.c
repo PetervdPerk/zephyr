@@ -8,64 +8,87 @@
 #include <logging/log_core.h>
 #include <logging/log_msg.h>
 #include <logging/log_output.h>
+#include <logging/log_backend_std.h>
 #include <SEGGER_RTT.h>
+
+#ifndef CONFIG_LOG_BACKEND_RTT_BUFFER_SIZE
+#define CONFIG_LOG_BACKEND_RTT_BUFFER_SIZE 0
+#endif
+
+#ifndef CONFIG_LOG_BACKEND_RTT_MESSAGE_SIZE
+#define CONFIG_LOG_BACKEND_RTT_MESSAGE_SIZE 0
+#endif
+
+#ifndef CONFIG_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE
+#define CONFIG_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE 0
+#endif
+
+#ifndef CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS
+/* Long enough to detect host presence */
+#define CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS 10
+#endif
+
+#ifndef CONFIG_LOG_BACKEND_RTT_RETRY_CNT
+/* Big enough to detect host presence */
+#define CONFIG_LOG_BACKEND_RTT_RETRY_CNT 10
+#endif
 
 #define DROP_MAX 99
 
-#if CONFIG_LOG_BACKEND_RTT_MODE_DROP
+#define DROP_MSG "messages dropped:    \r\n"
 
-#define DROP_MSG "\nmessages dropped:    \r"
 #define DROP_MSG_LEN (sizeof(DROP_MSG) - 1)
+
 #define MESSAGE_SIZE CONFIG_LOG_BACKEND_RTT_MESSAGE_SIZE
-#define CHAR_BUF_SIZE 1
-#define RETRY_DELAY_MS 10 /* Long enough to detect host presence */
-#define RETRY_CNT 10      /* Big enough to detect host presence */
-#else
 
-#define DROP_MSG NULL
-#define DROP_MSG_LEN 0
-#define MESSAGE_SIZE 0
-#define CHAR_BUF_SIZE CONFIG_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE
-#define RETRY_DELAY_MS CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS
-#define RETRY_CNT CONFIG_LOG_BACKEND_RTT_RETRY_CNT
-#endif /* CONFIG_LOG_BACKEND_RTT_MODE_DROP */
+#define CHAR_BUF_SIZE \
+	((IS_ENABLED(CONFIG_LOG_BACKEND_RTT_MODE_BLOCK) && \
+	 !IS_ENABLED(CONFIG_LOG_IMMEDIATE)) ? \
+		CONFIG_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE : 1)
 
-#if CONFIG_LOG_BACKEND_RTT_BUFFER > 0
+#define RTT_LOCK() \
+	COND_CODE_0(CONFIG_LOG_BACKEND_RTT_BUFFER, (SEGGER_RTT_LOCK()), ())
 
-#define RTT_LOCK()
-#define RTT_UNLOCK()
-#define RTT_BUFFER_SIZE CONFIG_LOG_BACKEND_RTT_BUFFER_SIZE
+#define RTT_UNLOCK() \
+	COND_CODE_0(CONFIG_LOG_BACKEND_RTT_BUFFER, (SEGGER_RTT_UNLOCK()), ())
 
-#else
+#define RTT_BUFFER_SIZE \
+	COND_CODE_0(CONFIG_LOG_BACKEND_RTT_BUFFER, \
+		(0), (CONFIG_LOG_BACKEND_RTT_BUFFER_SIZE))
 
-#define RTT_LOCK() SEGGER_RTT_LOCK()
-#define RTT_UNLOCK() SEGGER_RTT_UNLOCK()
-#define RTT_BUFFER_SIZE 0
-
-#endif /* CONFIG_LOG_BACKEND_RTT_BUFFER > 0 */
 
 static const char *drop_msg = DROP_MSG;
-static u8_t rtt_buf[RTT_BUFFER_SIZE];
-static u8_t line_buf[MESSAGE_SIZE + DROP_MSG_LEN];
-static u8_t *line_pos;
-static u8_t char_buf[CHAR_BUF_SIZE];
+static uint8_t rtt_buf[RTT_BUFFER_SIZE];
+static uint8_t line_buf[MESSAGE_SIZE + DROP_MSG_LEN];
+static uint8_t *line_pos;
+static uint8_t char_buf[CHAR_BUF_SIZE];
 static int drop_cnt;
 static int drop_warn;
-static bool sync_mode;
+static bool panic_mode;
 static bool host_present;
 
-static int data_out_block_mode(u8_t *data, size_t length, void *ctx);
-static int data_out_drop_mode(u8_t *data, size_t length, void *ctx);
+static int data_out_block_mode(uint8_t *data, size_t length, void *ctx);
+static int data_out_drop_mode(uint8_t *data, size_t length, void *ctx);
 
-static int char_out_drop_mode(u8_t data);
+static int char_out_drop_mode(uint8_t data);
 static int line_out_drop_mode(void);
 
-static int data_out_drop_mode(u8_t *data, size_t length, void *ctx)
+static inline bool is_sync_mode(void)
+{
+	return IS_ENABLED(CONFIG_LOG_IMMEDIATE) || panic_mode;
+}
+
+static inline bool is_panic_mode(void)
+{
+	return panic_mode;
+}
+
+static int data_out_drop_mode(uint8_t *data, size_t length, void *ctx)
 {
 	(void) ctx;
-	u8_t *pos;
+	uint8_t *pos;
 
-	if (sync_mode) {
+	if (is_sync_mode()) {
 		return data_out_block_mode(data, length, ctx);
 	}
 
@@ -78,17 +101,17 @@ static int data_out_drop_mode(u8_t *data, size_t length, void *ctx)
 	return (int) (pos - data);
 }
 
-static int char_out_drop_mode(u8_t data)
+static int char_out_drop_mode(uint8_t data)
 {
-	if (data == '\r') {
+	if (data == '\n') {
 		if (line_out_drop_mode()) {
 			return 1;
 		}
-		line_pos = drop_cnt > 0 ? line_buf + DROP_MSG_LEN : line_buf;
+		line_pos = line_buf;
 		return 0;
 	}
 
-	if (line_pos < line_buf + sizeof(line_buf) - 1) {
+	if (line_pos < line_buf + MESSAGE_SIZE - 1) {
 		*line_pos++ = data;
 	}
 
@@ -98,42 +121,51 @@ static int char_out_drop_mode(u8_t data)
 
 static int line_out_drop_mode(void)
 {
-	*line_pos = '\r';
+	/* line cannot be empty */
+	__ASSERT_NO_MSG(line_pos > line_buf);
+
+	/* Handle the case if line contains only '\n' */
+	if (line_pos - line_buf == 1) {
+		line_pos++;
+	}
+
+	*(line_pos - 1) = '\r';
+	*line_pos++ = '\n';
 
 	if (drop_cnt > 0 && !drop_warn) {
-		memmove(line_buf + DROP_MSG_LEN, line_buf,
-			line_pos - line_buf);
+		int cnt = MIN(drop_cnt, DROP_MAX);
+
+		__ASSERT_NO_MSG(line_pos - line_buf <= MESSAGE_SIZE);
+
+		memmove(line_buf + DROP_MSG_LEN, line_buf, line_pos - line_buf);
 		(void)memcpy(line_buf, drop_msg, DROP_MSG_LEN);
 		line_pos += DROP_MSG_LEN;
 		drop_warn = 1;
-	}
 
-	if (drop_warn) {
-		int cnt = MIN(drop_cnt, DROP_MAX);
 
 		if (cnt < 10) {
 			line_buf[DROP_MSG_LEN - 2] = ' ';
-			line_buf[DROP_MSG_LEN - 3] = (u8_t) ('0' + cnt);
+			line_buf[DROP_MSG_LEN - 3] = (uint8_t) ('0' + cnt);
 			line_buf[DROP_MSG_LEN - 4] = ' ';
 		} else {
-			line_buf[DROP_MSG_LEN - 2] = (u8_t) ('0' + cnt % 10);
-			line_buf[DROP_MSG_LEN - 3] = (u8_t) ('0' + cnt / 10);
+			line_buf[DROP_MSG_LEN - 2] = (uint8_t) ('0' + cnt % 10);
+			line_buf[DROP_MSG_LEN - 3] = (uint8_t) ('0' + cnt / 10);
 			line_buf[DROP_MSG_LEN - 4] = '>';
 		}
 	}
 
 	RTT_LOCK();
 	int ret = SEGGER_RTT_WriteSkipNoLock(CONFIG_LOG_BACKEND_RTT_BUFFER,
-					     line_buf, line_pos - line_buf + 1);
+					     line_buf, line_pos - line_buf);
 	RTT_UNLOCK();
 
 	if (ret == 0) {
 		drop_cnt++;
-		return 0;
+	} else {
+		drop_cnt = 0;
+		drop_warn = 0;
 	}
 
-	drop_cnt = 0;
-	drop_warn = 0;
 	return 0;
 }
 
@@ -141,17 +173,18 @@ static void on_failed_write(int retry_cnt)
 {
 	if (retry_cnt == 0) {
 		host_present = false;
-	} else if (sync_mode) {
-		k_busy_wait(USEC_PER_MSEC * RETRY_DELAY_MS);
+	} else if (is_sync_mode()) {
+		k_busy_wait(USEC_PER_MSEC *
+				CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS);
 	} else {
-		k_sleep(RETRY_DELAY_MS);
+		k_msleep(CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS);
 	}
 }
 
 static void on_write(int retry_cnt)
 {
 	host_present = true;
-	if (sync_mode) {
+	if (is_panic_mode()) {
 		/* In panic mode block on each write until host reads it. This
 		 * way it is ensured that if system resets all messages are read
 		 * by the host. While pending on data being read by the host we
@@ -165,20 +198,22 @@ static void on_write(int retry_cnt)
 
 }
 
-static int data_out_block_mode(u8_t *data, size_t length, void *ctx)
+static int data_out_block_mode(uint8_t *data, size_t length, void *ctx)
 {
-	int ret;
-	int retry_cnt = RETRY_CNT;
+	int ret = 0;
+	/* This function is also called in drop mode for synchronous operation
+	 * in that case retry is undesired */
+	int retry_cnt = IS_ENABLED(CONFIG_LOG_BACKEND_RTT_MODE_BLOCK) ?
+			 CONFIG_LOG_BACKEND_RTT_RETRY_CNT : 1;
 
 	do {
-		if (!sync_mode) {
+		if (!is_sync_mode()) {
 			RTT_LOCK();
 		}
 
 		ret = SEGGER_RTT_WriteSkipNoLock(CONFIG_LOG_BACKEND_RTT_BUFFER,
 						 data, length);
-
-		if (!sync_mode) {
+		if (!is_sync_mode()) {
 			RTT_UNLOCK();
 		}
 
@@ -187,34 +222,25 @@ static int data_out_block_mode(u8_t *data, size_t length, void *ctx)
 		} else if (host_present) {
 			retry_cnt--;
 			on_failed_write(retry_cnt);
+		} else {
 		}
 	} while ((ret == 0) && host_present);
 
-	return length;
+	return ((ret == 0) && host_present) ? 0 : length;
 }
 
-LOG_OUTPUT_DEFINE(log_output, IS_ENABLED(CONFIG_LOG_BACKEND_RTT_MODE_BLOCK) ?
-		  data_out_block_mode : data_out_drop_mode,
+LOG_OUTPUT_DEFINE(log_output_rtt,
+		  IS_ENABLED(CONFIG_LOG_BACKEND_RTT_MODE_BLOCK) ?
+			  data_out_block_mode : data_out_drop_mode,
 		  char_buf, sizeof(char_buf));
 
 static void put(const struct log_backend *const backend,
 		struct log_msg *msg)
 {
-	log_msg_get(msg);
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_RTT_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
 
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	log_output_msg_process(&log_output, msg, flags);
-
-	log_msg_put(msg);
+	log_backend_std_put(&log_output_rtt, flag, msg);
 }
 
 static void log_backend_rtt_cfg(void)
@@ -231,62 +257,42 @@ static void log_backend_rtt_init(void)
 	}
 
 	host_present = true;
-	sync_mode = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? true : false;
 	line_pos = line_buf;
 }
 
 static void panic(struct log_backend const *const backend)
 {
-	log_output_flush(&log_output);
-	sync_mode = true;
+	panic_mode = true;
+	log_backend_std_panic(&log_output_rtt);
 }
 
-static void dropped(const struct log_backend *const backend, u32_t cnt)
+static void dropped(const struct log_backend *const backend, uint32_t cnt)
 {
 	ARG_UNUSED(backend);
 
-	log_output_dropped_process(&log_output, cnt);
+	log_backend_std_dropped(&log_output_rtt, cnt);
 }
 
 static void sync_string(const struct log_backend *const backend,
-		     struct log_msg_ids src_level, u32_t timestamp,
+		     struct log_msg_ids src_level, uint32_t timestamp,
 		     const char *fmt, va_list ap)
 {
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-	u32_t key;
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_RTT_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
 
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	key = irq_lock();
-	log_output_string(&log_output, src_level, timestamp, fmt, ap, flags);
-	irq_unlock(key);
+	log_backend_std_sync_string(&log_output_rtt, flag, src_level,
+				    timestamp, fmt, ap);
 }
 
 static void sync_hexdump(const struct log_backend *const backend,
-			 struct log_msg_ids src_level, u32_t timestamp,
-			 const char *metadata, const u8_t *data, u32_t length)
+			 struct log_msg_ids src_level, uint32_t timestamp,
+			 const char *metadata, const uint8_t *data, uint32_t length)
 {
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-	u32_t key;
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_RTT_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
 
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	key = irq_lock();
-	log_output_hexdump(&log_output, src_level, timestamp,
-			metadata, data, length, flags);
-	irq_unlock(key);
+	log_backend_std_sync_hexdump(&log_output_rtt, flag, src_level,
+				     timestamp, metadata, data, length);
 }
 
 const struct log_backend_api log_backend_rtt_api = {

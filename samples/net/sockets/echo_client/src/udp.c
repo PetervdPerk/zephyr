@@ -16,6 +16,7 @@ LOG_MODULE_DECLARE(net_echo_client_sample, LOG_LEVEL_DBG);
 
 #include <net/socket.h>
 #include <net/tls_credentials.h>
+#include <random/rand32.h>
 
 #include "common.h"
 #include "ca_certificate.h"
@@ -24,7 +25,7 @@ LOG_MODULE_DECLARE(net_echo_client_sample, LOG_LEVEL_DBG);
 #define UDP_SLEEP K_MSEC(150)
 #define UDP_WAIT K_SECONDS(10)
 
-char recv_buf[RECV_BUF_SIZE];
+static APP_BMEM char recv_buf[RECV_BUF_SIZE];
 
 static int send_udp_data(struct data *data)
 {
@@ -32,7 +33,8 @@ static int send_udp_data(struct data *data)
 
 	do {
 		data->udp.expecting = sys_rand32_get() % ipsum_len;
-	} while (data->udp.expecting == 0);
+	} while (data->udp.expecting == 0U ||
+		 data->udp.expecting > data->udp.mtu);
 
 	ret = send(data->udp.sock, lorem_ipsum, data->udp.expecting, 0);
 
@@ -43,7 +45,7 @@ static int send_udp_data(struct data *data)
 	return ret < 0 ? -EIO : 0;
 }
 
-static int compare_udp_data(struct data *data, const char *buf, u32_t received)
+static int compare_udp_data(struct data *data, const char *buf, uint32_t received)
 {
 	if (received != data->udp.expecting) {
 		LOG_ERR("Invalid amount of data received: UDP %s", data->proto);
@@ -98,6 +100,9 @@ static int start_udp_proto(struct data *data, struct sockaddr *addr,
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	sec_tag_t sec_tag_list[] = {
 		CA_CERTIFICATE_TAG,
+#if defined(CONFIG_MBEDTLS_KEY_EXCHANGE_PSK_ENABLED)
+		PSK_TAG,
+#endif
 	};
 
 	ret = setsockopt(data->udp.sock, SOL_TLS, TLS_SEC_TAG_LIST,
@@ -158,7 +163,7 @@ static int process_udp_proto(struct data *data)
 	LOG_DBG("%s UDP: Received and compared %d bytes, all ok",
 		data->proto, received);
 
-	if (++data->udp.counter % 1000 == 0) {
+	if (++data->udp.counter % 1000 == 0U) {
 		LOG_INF("%s UDP: Exchanged %u packets", data->proto,
 			data->udp.counter);
 	}
@@ -249,7 +254,7 @@ void stop_udp(void)
 		k_delayed_work_cancel(&conf.ipv6.udp.recv);
 		k_delayed_work_cancel(&conf.ipv6.udp.transmit);
 
-		if (conf.ipv6.udp.sock > 0) {
+		if (conf.ipv6.udp.sock >= 0) {
 			(void)close(conf.ipv6.udp.sock);
 		}
 	}
@@ -258,7 +263,7 @@ void stop_udp(void)
 		k_delayed_work_cancel(&conf.ipv4.udp.recv);
 		k_delayed_work_cancel(&conf.ipv4.udp.transmit);
 
-		if (conf.ipv4.udp.sock > 0) {
+		if (conf.ipv4.udp.sock >= 0) {
 			(void)close(conf.ipv4.udp.sock);
 		}
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2019 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,10 +12,8 @@
  */
 
 OUTPUT_ARCH(xtensa)
-#define _LINKER
-#define _ASMLANGUAGE
 
-#include <generated_dts_board.h>
+#include <devicetree.h>
 #include "memory.h"
 #include <autoconf.h>
 #include <linker/sections.h>
@@ -23,8 +21,11 @@ OUTPUT_ARCH(xtensa)
 #include <linker/linker-defs.h>
 #include <linker/linker-tool.h>
 
+#include <xtensa/config/core-isa.h>
+
 #define RAMABLE_REGION ram :ram_phdr
 #define ROMABLE_REGION ram :ram_phdr
+#define LPRAM_REGION lpram
 
 MEMORY
 {
@@ -105,6 +106,9 @@ MEMORY
 	org = IDT_BASE,
 	len = IDT_SIZE
 #endif
+  lpram :
+	org = LPRAM_BASE,
+	len = LPRAM_SIZE
 }
 
 PHDRS
@@ -137,6 +141,9 @@ PHDRS
 _rom_store_table = 0;
 PROVIDE(_memmap_vecbase_reset = XCHAL_VECBASE_RESET_PADDR_SRAM);
 
+PROVIDE(__memctl_default = 0xFFFFFF00);
+PROVIDE(_MemErrorHandler = 0xFFFFFF00);
+
 ENTRY(CONFIG_KERNEL_ENTRY)
 
 /* Various memory-map dependent cache attribute settings: */
@@ -166,15 +173,25 @@ _memmap_cacheattr_bp_allvalid = 0x22222222;
  * 0x40000000 - 0x5FFFFFFF (bit  8 - 11) : No access
  * 0x60000000 - 0x7FFFFFFF (bit 12 - 15) : No access
  * 0x80000000 - 0x9FFFFFFF (bit 16 - 19) : Bypass cache
- * 0xA0000000 - 0xBFFFFFFF (bit 20 - 23) : Cached, write-back
+ * 0xA0000000 - 0xBFFFFFFF (bit 20 - 23) : Cached, write-through
  * 0xC0000000 - 0xDFFFFFFF (bit 24 - 27) : Bypass cache
- * 0xE0000000 - 0xFFFFFFFF (bit 28 - 31) : Cached, write-back
+ * 0xE0000000 - 0xFFFFFFFF (bit 28 - 31) : Cached, write-through
  *
  * Note that this is both for instruction and data caches,
  * as cacheattr_set macro sets them both to the same set of
  * attributes.
  */
-_memmap_cacheattr_intel_s1000 = 0x4242fff2;
+#ifndef CONFIG_SMP
+_memmap_cacheattr_intel_s1000 = 0x1212fff2;
+#else
+/*
+ * Since there is no cache coherence between cores,
+ * set the data section (0xA0000000 - 0xBFFFFFFF) to be
+ * non-cacheable, for now. Until we have proper support
+ * to manipulate cache lines.
+ */
+_memmap_cacheattr_intel_s1000 = 0x1222fff2;
+#endif
 
 PROVIDE(_memmap_cacheattr_reset = _memmap_cacheattr_intel_s1000);
 SECTIONS
@@ -184,7 +201,7 @@ SECTIONS
 
   .ResetVector.text : ALIGN(4)
   {
-    . = CONFIG_TEXT_SECTION_OFFSET;
+    . = CONFIG_ROM_START_OFFSET;
     _ResetVector_text_start = ABSOLUTE(.);
     KEEP (*(.ResetVector.text))
     _ResetVector_text_end = ABSOLUTE(.);
@@ -338,6 +355,7 @@ SECTIONS
     _etext = .;
   } >ram :ram_phdr
 #include <linker/common-rom.ld>
+#include <linker/thread-local-storage.ld>
 
   .noinit :  ALIGN(4)
   {
@@ -353,7 +371,7 @@ SECTIONS
     *(.rodata1)
     __XT_EXCEPTION_TABLE__ = ABSOLUTE(.);
     KEEP (*(.xt_except_table))
-    KEEP (*(.gcc_except_table))
+    KEEP (*(.gcc_except_table .gcc_except_table.*))
     *(.gnu.linkonce.e.*)
     *(.gnu.version_r)
     KEEP (*(.eh_frame))
@@ -432,7 +450,15 @@ SECTIONS
   /* stack */
   _end = ALIGN(8);
   PROVIDE(end = ALIGN(8));
-  __stack = DT_L2_SRAM_BASE + DT_L2_SRAM_SIZE;
+  __stack = L2_SRAM_BASE + L2_SRAM_SIZE;
+  /* dma buffers */
+  .lpbuf (NOLOAD): ALIGN(4)
+  {
+    _dma_buf_start = ABSOLUTE(.);
+    *(.dma_buffers)
+    _dma_buf_end = ABSOLUTE(.);
+  } >LPRAM_REGION
+  _heap_sentry = L2_SRAM_BASE + L2_SRAM_SIZE;
   .comment  0 :  { *(.comment) }
   .debug 0 : { *(.debug) }
   .line 0 : { *(.line) }

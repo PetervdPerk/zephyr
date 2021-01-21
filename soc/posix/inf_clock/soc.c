@@ -5,19 +5,18 @@
  */
 
 /**
- * For all purposes, Zephyr threads see a CPU running at an infinitly high
+ * For all purposes, Zephyr threads see a CPU running at an infinitely high
  * clock.
  *
  * Therefore, the code will always run until completion after each interrupt,
- * after which k_cpu_idle() will be called releasing the execution back to the
- * HW models.
+ * after which arch_cpu_idle() will be called releasing the execution back to
+ * the HW models.
  *
  * The HW models raising an interrupt will "awake the cpu" by calling
- * poisix_interrupt_raised() which will transfer control to the irq handler,
- * which will run inside SW/Zephyr contenxt. After which a __swap() to whatever
- * Zephyr thread may follow.
- * Again, once Zephyr is done, control is given back to the HW models.
- *
+ * posix_interrupt_raised() which will transfer control to the irq handler,
+ * which will run inside SW/Zephyr context. After which a arch_swap() to
+ * whatever Zephyr thread may follow.  Again, once Zephyr is done, control is
+ * given back to the HW models.
  *
  * The Zephyr OS+APP code and the HW models are gated by a mutex +
  * condition as there is no reason to let the zephyr threads run while the
@@ -28,7 +27,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include "posix_soc_if.h"
+#include <arch/posix/posix_soc_if.h>
 #include "posix_soc.h"
 #include "posix_board_if.h"
 #include "posix_core.h"
@@ -74,16 +73,16 @@ int posix_is_cpu_running(void)
  * raise a new interrupt; and how the HW models awake the CPU, and wait for it
  * to complete and go to idle.
  */
-static void posix_change_cpu_state_and_wait(bool halted)
+void posix_change_cpu_state_and_wait(bool halted)
 {
-	_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
 
 	PS_DEBUG("Going to halted = %d\n", halted);
 
 	cpu_halted = halted;
 
 	/* We let the other side know the CPU has changed state */
-	_SAFE_CALL(pthread_cond_broadcast(&cond_cpu));
+	PC_SAFE_CALL(pthread_cond_broadcast(&cond_cpu));
 
 	/* We wait until the CPU state has been changed. Either:
 	 * we just awoke it, and therefore wait until the CPU has run until
@@ -100,7 +99,7 @@ static void posix_change_cpu_state_and_wait(bool halted)
 
 	PS_DEBUG("Awaken after halted = %d\n", halted);
 
-	_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
 }
 
 /**
@@ -125,7 +124,7 @@ void posix_interrupt_raised(void)
 
 
 /**
- * Normally called from k_cpu_idle():
+ * Normally called from arch_cpu_idle():
  *   the idle loop will call this function to set the CPU to "sleep".
  * Others may also call this function with care. The CPU will be set to sleep
  * until some interrupt awakes it.
@@ -143,8 +142,8 @@ void posix_halt_cpu(void)
 	 * => let the "irq handler" check if/what interrupt was raised
 	 * and call the appropriate irq handler.
 	 *
-	 * Note that, the interrupt handling may trigger a __swap() to another
-	 * Zephyr thread. When posix_irq_handler() returns, the Zephyr
+	 * Note that, the interrupt handling may trigger a arch_swap() to
+	 * another Zephyr thread. When posix_irq_handler() returns, the Zephyr
 	 * kernel has swapped back to this thread again
 	 */
 	posix_irq_handler();
@@ -156,7 +155,7 @@ void posix_halt_cpu(void)
 
 
 /**
- * Implementation of k_cpu_atomic_idle() for this SOC
+ * Implementation of arch_cpu_atomic_idle() for this SOC
  */
 void posix_atomic_halt_cpu(unsigned int imask)
 {
@@ -173,8 +172,8 @@ void posix_atomic_halt_cpu(unsigned int imask)
 static void *zephyr_wrapper(void *a)
 {
 	/* Ensure posix_boot_cpu has reached the cond loop */
-	_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
-	_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
 
 #if (POSIX_ARCH_SOC_DEBUG_PRINTS)
 		pthread_t zephyr_thread = pthread_self();
@@ -200,20 +199,20 @@ static void *zephyr_wrapper(void *a)
  */
 void posix_boot_cpu(void)
 {
-	_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
 
 	cpu_halted = false;
 
 	pthread_t zephyr_thread;
 
 	/* Create a thread for Zephyr init: */
-	_SAFE_CALL(pthread_create(&zephyr_thread, NULL, zephyr_wrapper, NULL));
+	PC_SAFE_CALL(pthread_create(&zephyr_thread, NULL, zephyr_wrapper, NULL));
 
 	/* And we wait until Zephyr has run til completion (has gone to idle) */
 	while (cpu_halted == false) {
 		pthread_cond_wait(&cond_cpu, &mtx_cpu);
 	}
-	_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
+	PC_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
 
 	if (soc_terminate) {
 		posix_exit(0);
@@ -276,12 +275,12 @@ void posix_soc_clean_up(void)
 
 		soc_terminate = true;
 
-		_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
+		PC_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
 
 		cpu_halted = true;
 
-		_SAFE_CALL(pthread_cond_broadcast(&cond_cpu));
-		_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
+		PC_SAFE_CALL(pthread_cond_broadcast(&cond_cpu));
+		PC_SAFE_CALL(pthread_mutex_unlock(&mtx_cpu));
 
 		while (1) {
 			sleep(1);

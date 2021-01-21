@@ -1,13 +1,10 @@
-#
 # Copyright (c) 2018 Synopsys, Inc. All rights reserved.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if SOC_NSIM_EM
 
-config CPU_EM4_DMIPS
-	def_bool y
+config CPU_EM4_FPUDA
+	default y
 
 config NUM_IRQ_PRIO_LEVELS
 	# This processor supports 4 priority levels:
@@ -16,7 +13,7 @@ config NUM_IRQ_PRIO_LEVELS
 
 config NUM_IRQS
 	# must be > the highest interrupt number used
-	default 20
+	default 30
 
 config ARC_MPU_VER
 	default 2
@@ -25,7 +22,7 @@ config RGF_NUM_BANKS
 	default 2
 
 config SYS_CLOCK_HW_CYCLES_PER_SEC
-	default 10000000
+	default 5000000
 
 config HARVARD
 	default y
@@ -33,7 +30,10 @@ config HARVARD
 config ARC_FIRQ
 	default y
 
-config CACHE_FLUSHING
+config CACHE_MANAGEMENT
+	default y
+
+config FP_FPU_DA
 	default y
 
 if (ARC_MPU_VER = 2)
@@ -44,13 +44,10 @@ config MAIN_STACK_SIZE
 config IDLE_STACK_SIZE
 	default 2048
 
-if ZTEST
-
 config ZTEST_STACKSIZE
 	default 2048
-
-endif # ZTEST
+	depends on ZTEST
 
 endif # ARC_MPU_VER
 
-endif #SOC_NSIM_EM
+endif # SOC_NSIM_EM

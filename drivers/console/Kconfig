@@ -1,16 +1,17 @@
-# Kconfig - console driver configuration options
+# Console driver configuration options
 
-#
 # Copyright (c) 2014-2015 Wind River Systems, Inc.
 # Copyright (c) 2016 Cadence Design Systems, Inc.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 # Setting shared by different subsystems
+
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_CONSOLE := zephyr,console
+
 config UART_CONSOLE_ON_DEV_NAME
 	string "Device Name of UART Device for UART Console"
-	default "$(dt_str_val,DT_UART_CONSOLE_ON_DEV_NAME)" if HAS_DTS
+	default "$(dt_chosen_label,$(DT_CHOSEN_Z_CONSOLE))" if HAS_DTS
 	default "UART_0"
 	depends on (UART_CONSOLE || CONSOLE_SUBSYS)
 	help
@@ -37,7 +38,7 @@ config CONSOLE_HAS_DRIVER
 
 config CONSOLE_HANDLER
 	bool "Enable console input handler"
-	depends on UART_CONSOLE
+	depends on UART_CONSOLE && SERIAL_SUPPORT_INTERRUPT
 	select UART_INTERRUPT_DRIVEN
 	help
 	  This option enables console input handler allowing to write simple
@@ -53,6 +54,7 @@ config UART_CONSOLE
 
 config UART_CONSOLE_INIT_PRIORITY
 	int "Init priority"
+	default 95 if USB_UART_CONSOLE
 	default 60
 	depends on UART_CONSOLE
 	help
@@ -89,14 +91,6 @@ config USB_UART_CONSOLE
 	  inputs from the USB UART are not functional yet. Also since the USB
 	  layer currently doesn't support multiple interfaces, this shouldn't be
 	  selected in conjunction with, say, USB Mass Storage.
-
-config USB_UART_DTR_WAIT
-	bool "Wait on DTR control signal"
-	depends on USB_UART_CONSOLE
-	help
-	  Enable this option to use flow control on the console. The uart console
-	  waits until the DTR is asserted by the host.
-	  Note: Disabling this might lead to missing console prints.
 
 config RAM_CONSOLE
 	bool "Use RAM console"
@@ -167,22 +161,40 @@ config IPM_CONSOLE_RECEIVER
 config IPM_CONSOLE_STACK_SIZE
 	int "Stack size for IPM console receiver thread"
 	depends on IPM_CONSOLE_RECEIVER
+	default 2048 if COVERAGE
 	default 512
 	help
 	  Each instance of the IPM console receiver driver creates a worker
 	  thread to print out incoming messages from the remote CPU. Specify the
 	  stack size for these threads here.
 
-config IPM_CONSOLE_INIT_PRIORITY
-	int "IPM console init priority"
-	default 60
-	depends on IPM_CONSOLE_SENDER || IPM_CONSOLE_RECEIVER
+config IPM_CONSOLE
+	bool "Inter-processor Mailbox console"
+	depends on IPM
+	select CONSOLE_HAS_DRIVER
 	help
-	  Device driver initialization priority.
-	  Console has to be initialized after the IPM subsystem
-	  it uses.
+	  Enable console over Inter-processor Mailbox.
 
-config	UART_PIPE
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_IPM_CONSOLE := zephyr,console
+
+config IPM_CONSOLE_ON_DEV_NAME
+	string "IPM device name used by console"
+	default "$(dt_chosen_label,$(DT_CHOSEN_Z_IPM_CONSOLE))" if HAS_DTS
+	default "IPM_0"
+	depends on IPM_CONSOLE
+	help
+	  IPM device name used by IPM console driver.
+
+config IPM_CONSOLE_LINE_BUF_LEN
+	int "IPM console line buffer length"
+	default 128
+	depends on IPM_CONSOLE
+	help
+	  IPM console line buffer length specify amount of the buffer
+	  where characters are stored before sending the whole line.
+
+config UART_PIPE
 	bool "Enable pipe UART driver"
 	select UART_INTERRUPT_DRIVEN
 	help
@@ -191,9 +203,12 @@ config	UART_PIPE
 	  data (as contrary to console UART driver) and all aspects of received
 	  protocol data are handled by application provided callback.
 
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_UART_PIPE := zephyr,uart-pipe
+
 config UART_PIPE_ON_DEV_NAME
 	string "Device Name of UART Device for pipe UART"
-	default "$(dt_str_val,DT_UART_PIPE_ON_DEV_NAME)" if HAS_DTS
+	default "$(dt_chosen_label,$(DT_CHOSEN_Z_UART_PIPE))" if HAS_DTS
 	default "UART_0"
 	depends on UART_PIPE
 	help
@@ -212,9 +227,12 @@ config UART_MCUMGR
 
 if UART_MCUMGR
 
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_UART_MCUMGR := zephyr,uart-mcumgr
+
 config UART_MCUMGR_ON_DEV_NAME
 	string "Device Name of UART Device for mcumgr UART"
-	default "$(dt_str_val,DT_UART_MCUMGR_ON_DEV_NAME)" if HAS_DTS
+	default "$(dt_chosen_label,$(DT_CHOSEN_Z_UART_MCUMGR))" if HAS_DTS
 	default "UART_0"
 	help
 	  This option specifies the name of UART device to be used
@@ -270,13 +288,6 @@ config NATIVE_STDIN_POLL_PERIOD
 	help
 	  In ms, polling period for stdin
 
-config NATIVE_STDIN_PRIO
-	int "Priority of the stdin polling thread"
-	depends on NATIVE_POSIX_STDIN_CONSOLE
-	default 4
-	help
-	  Priority of the native stdin polling thread
-
 config NATIVE_POSIX_STDOUT_CONSOLE
 	bool "Print to the host terminal stdout"
 	depends on NATIVE_POSIX_CONSOLE
@@ -298,5 +309,106 @@ config NATIVE_POSIX_CONSOLE_INIT_PRIORITY
 	help
 	  Device driver initialization priority.
 
-source "drivers/console/Kconfig.telnet"
-endif
+config SEMIHOST_CONSOLE
+	bool "Use semihosting for console"
+	select CONSOLE_HAS_DRIVER
+	depends on CPU_CORTEX_M
+	help
+	  Enable this option to use semihosting for console.
+	  Semihosting is a mechanism that enables code running on an ARM target
+	  to communicate and use the Input/Output facilities on a host computer
+	  that is running a debugger.
+	  Additional information can be found in:
+	  https://developer.arm.com/docs/dui0471/k/what-is-semihosting/what-is-semihosting
+	  This option is compatible with hardware and with QEMU, through the
+	  (automatic) use of the -semihosting-config switch when invoking it.
+
+module = UART_CONSOLE
+module-str = UART console
+source "subsys/logging/Kconfig.template.log_config"
+
+source "drivers/console/Kconfig.gsm_mux"
+
+config UART_MUX
+	bool "Enable UART muxing (GSM 07.10) support [EXPERIMENTAL]"
+	depends on SERIAL_SUPPORT_INTERRUPT && GSM_MUX
+	select UART_INTERRUPT_DRIVEN
+	help
+	  Enable this option to create UART muxer that run over a physical
+	  UART. The GSM 07.10 muxing protocol is used to separate the data
+	  between these muxed UARTs.
+
+if UART_MUX
+
+config UART_MUX_INIT_PRIORITY
+	int "Init priority"
+	default 95
+	help
+	  Device driver initialization priority. UART mux has to be
+	  initialized after the UART driver it uses.
+
+config UART_MUX_DEVICE_NAME
+	string "UART mux device name template"
+	default "GSM"
+	help
+	  Device name template for the UART mux Devices. First device would
+	  have name $(UART_MUX_DEVICE_NAME)_0, etc. User will access muxed
+	  UART using this name.
+
+config UART_MUX_RINGBUF_SIZE
+	int "UART mux ring buffer size"
+	default 256
+	help
+	  UART mux ring buffer size when passing data from RX ISR to worker
+	  thread that will do the unmuxing.
+
+config UART_MUX_TEMP_BUF_SIZE
+	int "Size of the temp buffer when reading data from real UART"
+	default 32
+	help
+	  Size of the temporary RX buffer in receiving ISR.
+
+config UART_MUX_DEVICE_COUNT
+	int "Number of UART mux devices (DLCIs)"
+	default GSM_MUX_DLCI_MAX
+	range 1 64
+	help
+	  Number of instances of UART muxes. Default value is set by
+	  maximum number of DLCIs (Data Link Connection Identifiers)
+	  configured in the system.
+
+config UART_MUX_REAL_DEVICE_COUNT
+	int "Number of real UART devices"
+	default 1
+	help
+	  Tells how many real UART devices there are. Typically there is
+	  only one UART and the muxed UARTs are run on top of that. If you have
+	  two modems for example, then you would need to increase this to two.
+
+config UART_MUX_RX_STACK_SIZE
+	int "Size of the stack allocated for receiving data from UART"
+	default 512
+	help
+	  Sets the stack size which will be used by the PPP RX workqueue.
+
+config UART_MUX_RX_PRIORITY
+	int "RX workqueue thread priority"
+	default 7
+	help
+	  Sets the priority of the RX workqueue thread.
+
+module = UART_MUX
+module-str = UART mux
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # UART_MUX
+
+config UART_MUX_VERBOSE_DEBUG
+	bool "Print hexdump of sent and received packets"
+	depends on UART_MUX_LOG_LEVEL_DBG
+	help
+	  As there might be lot of debug output printed, only enable
+	  this if really needed.
+
+
+endif # CONSOLE

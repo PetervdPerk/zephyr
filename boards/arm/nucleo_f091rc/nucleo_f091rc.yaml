@@ -1,5 +1,5 @@
 identifier: nucleo_f091rc
-name: NUCLEO-F091RC
+name: ST Nucleo F091RC
 type: mcu
 arch: arm
 toolchain:
@@ -9,12 +9,17 @@ toolchain:
 ram: 32
 flash: 256
 supported:
+  - arduino_gpio
   - arduino_i2c
+  - arduino_spi
   - gpio
   - i2c
   - nvs
   - spi
+  - counter
   - watchdog
+  - adc
+  - dac
 testing:
   ignore_tags:
     - net

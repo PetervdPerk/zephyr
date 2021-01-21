@@ -8,20 +8,22 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(usb_eem);
 
-#include <net_private.h>
-#include <zephyr.h>
-#include <usb_device.h>
-#include <usb_common.h>
-
 #include <net/net_pkt.h>
+#include <net/ethernet.h>
+#include <net_private.h>
 
-#include <usb_descriptor.h>
-#include <class/usb_cdc.h>
+#include <usb/usb_device.h>
+#include <usb/usb_common.h>
+#include <usb/class/usb_cdc.h>
+
 #include "netusb.h"
 
-#define EEM_FRAME_SIZE 1522
+static uint8_t sentinel[] = { 0xde, 0xad, 0xbe, 0xef };
 
-static u8_t tx_buf[EEM_FRAME_SIZE], rx_buf[EEM_FRAME_SIZE];
+#define EEM_FRAME_SIZE (NET_ETH_MAX_FRAME_SIZE + sizeof(sentinel) + \
+			sizeof(uint16_t)) /* EEM header */
+
+static uint8_t tx_buf[EEM_FRAME_SIZE], rx_buf[EEM_FRAME_SIZE];
 
 struct usb_cdc_eem_config {
 	struct usb_if_descriptor if0;
@@ -51,8 +53,7 @@ USBD_CLASS_DESCR_DEFINE(primary, 0) struct usb_cdc_eem_config cdc_eem_cfg = {
 		.bEndpointAddress = CDC_EEM_IN_EP_ADDR,
 		.bmAttributes = USB_DC_EP_BULK,
 		.wMaxPacketSize =
-			sys_cpu_to_le16(
-			CONFIG_CDC_EEM_BULK_EP_MPS),
+			sys_cpu_to_le16(CONFIG_CDC_EEM_BULK_EP_MPS),
 		.bInterval = 0x00,
 	},
 
@@ -63,13 +64,12 @@ USBD_CLASS_DESCR_DEFINE(primary, 0) struct usb_cdc_eem_config cdc_eem_cfg = {
 		.bEndpointAddress = CDC_EEM_OUT_EP_ADDR,
 		.bmAttributes = USB_DC_EP_BULK,
 		.wMaxPacketSize =
-			sys_cpu_to_le16(
-			CONFIG_CDC_EEM_BULK_EP_MPS),
+			sys_cpu_to_le16(CONFIG_CDC_EEM_BULK_EP_MPS),
 		.bInterval = 0x00,
 	},
 };
 
-static u8_t eem_get_first_iface_number(void)
+static uint8_t eem_get_first_iface_number(void)
 {
 	return cdc_eem_cfg.if0.bInterfaceNumber;
 }
@@ -90,7 +90,7 @@ static struct usb_ep_cfg_data eem_ep_data[] = {
 	},
 };
 
-static inline u16_t eem_pkt_size(u16_t hdr)
+static inline uint16_t eem_pkt_size(uint16_t hdr)
 {
 	if (hdr & BIT(15)) {
 		return hdr & 0x07ff;
@@ -101,8 +101,7 @@ static inline u16_t eem_pkt_size(u16_t hdr)
 
 static int eem_send(struct net_pkt *pkt)
 {
-	u8_t sentinel[4] = { 0xde, 0xad, 0xbe, 0xef };
-	u16_t *hdr = (u16_t *)&tx_buf[0];
+	uint16_t *hdr = (uint16_t *)&tx_buf[0];
 	int ret, len, b_idx = 0;
 
 	/* With EEM, it's possible to send multiple ethernet packets in one
@@ -110,11 +109,16 @@ static int eem_send(struct net_pkt *pkt)
 	 */
 	len = net_pkt_get_len(pkt) + sizeof(sentinel);
 
+	if (len + sizeof(uint16_t) > sizeof(tx_buf)) {
+		LOG_WRN("Trying to send too large packet, drop");
+		return -ENOMEM;
+	}
+
 	/* Add EEM header */
 	*hdr = sys_cpu_to_le16(0x3FFF & len);
-	b_idx += sizeof(u16_t);
+	b_idx += sizeof(uint16_t);
 
-	if (net_pkt_read_new(pkt, &tx_buf[b_idx], net_pkt_get_len(pkt))) {
+	if (net_pkt_read(pkt, &tx_buf[b_idx], net_pkt_get_len(pkt))) {
 		return -ENOBUFS;
 	}
 
@@ -136,29 +140,29 @@ static int eem_send(struct net_pkt *pkt)
 	return 0;
 }
 
-static void eem_read_cb(u8_t ep, int size, void *priv)
+static void eem_read_cb(uint8_t ep, int size, void *priv)
 {
-	u8_t *ptr = rx_buf;
+	uint8_t *ptr = rx_buf;
 
 	do {
-		u16_t eem_hdr, eem_size;
+		uint16_t eem_hdr, eem_size;
 		struct net_pkt *pkt;
 
-		if (size < sizeof(u16_t)) {
+		if (size < sizeof(uint16_t)) {
 			break;
 		}
 
 		eem_hdr = sys_get_le16(ptr);
 		eem_size = eem_pkt_size(eem_hdr);
 
-		if (eem_size + sizeof(u16_t) > size) {
+		if (eem_size + sizeof(uint16_t) > size) {
 			/* eem pkt greater than transferred data */
 			LOG_ERR("pkt size error");
 			break;
 		}
 
-		size -= sizeof(u16_t);
-		ptr += sizeof(u16_t);
+		size -= sizeof(uint16_t);
+		ptr += sizeof(uint16_t);
 
 		if (eem_hdr & BIT(15)) {
 			/* EEM Command, do nothing for now */
@@ -174,15 +178,15 @@ static void eem_read_cb(u8_t ep, int size, void *priv)
 		}
 
 		pkt = net_pkt_alloc_with_buffer(netusb_net_iface(),
-						eem_size - 4, AF_UNSPEC, 0,
-						K_FOREVER);
+						eem_size - sizeof(sentinel),
+						AF_UNSPEC, 0, K_FOREVER);
 		if (!pkt) {
 			LOG_ERR("Unable to alloc pkt\n");
 			break;
 		}
 
 		/* copy payload and discard 32-bit sentinel */
-		if (net_pkt_write_new(pkt, ptr, eem_size - 4)) {
+		if (net_pkt_write(pkt, ptr, eem_size - sizeof(sentinel))) {
 			LOG_ERR("Unable to write into pkt\n");
 			net_pkt_unref(pkt);
 			break;
@@ -217,19 +221,26 @@ static struct netusb_function eem_function = {
 	.send_pkt = eem_send,
 };
 
-static inline void eem_status_interface(const u8_t *iface)
+static inline void eem_status_interface(const uint8_t *desc)
 {
+	const struct usb_if_descriptor *if_desc = (void *)desc;
+	uint8_t iface_num = if_desc->bInterfaceNumber;
+
 	LOG_DBG("");
 
-	if (*iface != eem_get_first_iface_number()) {
+	if (iface_num != eem_get_first_iface_number()) {
 		return;
 	}
 
 	netusb_enable(&eem_function);
 }
 
-static void eem_do_cb(enum usb_dc_status_code status, const u8_t *param)
+static void eem_status_cb(struct usb_cfg_data *cfg,
+			  enum usb_dc_status_code status,
+			  const uint8_t *param)
 {
+	ARG_UNUSED(cfg);
+
 	/* Check the USB status and do needed action if required */
 	switch (status) {
 	case USB_DC_DISCONNECTED:
@@ -261,43 +272,23 @@ static void eem_do_cb(enum usb_dc_status_code status, const u8_t *param)
 	}
 }
 
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-static void eem_status_composite_cb(struct usb_cfg_data *cfg,
-				    enum usb_dc_status_code status,
-				    const u8_t *param)
-{
-	ARG_UNUSED(cfg);
-	eem_do_cb(status, param);
-}
-#else
-static void eem_status_cb(enum usb_dc_status_code status, const u8_t *param)
-{
-	eem_do_cb(status, param);
-}
-#endif
-
 static void eem_interface_config(struct usb_desc_header *head,
-				 u8_t bInterfaceNumber)
+				 uint8_t bInterfaceNumber)
 {
 	ARG_UNUSED(head);
 
 	cdc_eem_cfg.if0.bInterfaceNumber = bInterfaceNumber;
 }
 
-USBD_CFG_DATA_DEFINE(netusb) struct usb_cfg_data netusb_config = {
+USBD_CFG_DATA_DEFINE(primary, netusb) struct usb_cfg_data netusb_config = {
 	.usb_device_description = NULL,
 	.interface_config = eem_interface_config,
 	.interface_descriptor = &cdc_eem_cfg.if0,
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-	.cb_usb_status_composite = eem_status_composite_cb,
-#else
 	.cb_usb_status = eem_status_cb,
-#endif
 	.interface = {
 		.class_handler = NULL,
 		.custom_handler = NULL,
 		.vendor_handler = NULL,
-		.payload_data = NULL,
 	},
 	.num_endpoints = ARRAY_SIZE(eem_ep_data),
 	.endpoint = eem_ep_data,

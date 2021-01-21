@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 cmake_minimum_required(VERSION 3.13.1)
 
 if (NOT DEFINED ENV{BSIM_COMPONENTS_PATH})
@@ -7,7 +9,7 @@ if (NOT DEFINED ENV{BSIM_COMPONENTS_PATH})
  https://babblesim.github.io/folder_structure_and_env.html")
 endif()
 
-include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(bsim_test_app)
 
 target_sources(app PRIVATE
@@ -15,12 +17,10 @@ target_sources(app PRIVATE
 	src/test_empty.c
 	src/test_connect1.c
 	src/test_connect2.c
-	../../../../samples/bluetooth/gatt/hrs.c
-	../../../../samples/bluetooth/gatt/bas.c
 )
 
 zephyr_include_directories(
   $ENV{BSIM_COMPONENTS_PATH}/libUtilv1/src/
   $ENV{BSIM_COMPONENTS_PATH}/libPhyComv1/src/
-  $ENV{ZEPHYR_BASE}/samples/bluetooth
+  ${ZEPHYR_BASE}/samples/bluetooth
 )

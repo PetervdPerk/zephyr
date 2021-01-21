@@ -6,6 +6,8 @@
 A "3rd party toolchain" is an officially supported toolchain provided by an
 external organization. Several of these are available.
 
+.. _toolchain_gnuarmemb:
+
 GNU ARM Embedded
 ****************
 
@@ -20,69 +22,67 @@ GNU ARM Embedded
 
    .. warning::
 
-	  The GNU ARM Embedded Toolchain for Windows, version **8-2018-q4-major**
-	  has a `critical bug <https://github.com/zephyrproject-rtos/zephyr/issues/12257>`_
-	  and should not be used. Toolchain version **7-2018-q2-update** is known to work.
+      On macOS Catalina or later you might need to :ref:`change a security
+      policy <mac-gatekeeper>` for the toolchain to be able to run from the
+      terminal.
 
-#. Configure the environment variables needed to inform the Zephyr build system
-   to use this toolchain:
+#. :ref:`Set these environment variables <env_vars>`:
 
    - Set :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` to ``gnuarmemb``.
    - Set :envvar:`GNUARMEMB_TOOLCHAIN_PATH` to the toolchain installation
      directory.
 
-   For example:
+#. To check that you have set these variables correctly in your current
+   environment, follow these example shell sessions (the
+   :envvar:`GNUARMEMB_TOOLCHAIN_PATH` values may be different on your system):
 
    .. code-block:: console
 
-      # Linux or macOS
-      export ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb
-      export GNUARMEMB_TOOLCHAIN_PATH="~/gnu_arm_embedded"
+      # Linux, macOS:
+      $ echo $ZEPHYR_TOOLCHAIN_VARIANT
+      gnuarmemb
+      $ echo $GNUARMEMB_TOOLCHAIN_PATH
+      /home/you/Downloads/gnu_arm_embedded
 
-      # Windows in cmd.exe
-      set ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb
-      set GNUARMEMB_TOOLCHAIN_PATH=C:\gnu_arm_embedded
+      # Windows
+      > echo %ZEPHYR_TOOLCHAIN_VARIANT%
+      gnuarmemb
+      > echo %GNUARMEMB_TOOLCHAIN_PATH%
+      C:\gnu_arm_embedded
 
-Intel ISSM
-**********
 
-.. note::
+DesignWare ARC MetaWare Development Toolkit (MWDT)
+**************************************************
 
-   The ISSM toolset only supports development for Intel |reg| Quark |trade|
-   Microcontrollers, for example, the Arduino 101 board.  (Check out the
-   "Zephyr Development Environment
-   Setup" in this `Getting Started on Arduino 101 with ISSM`_ document.)
-   Additional setup is required to use the ISSM GUI for development.
+#. You need to have `ARC MWDT
+   <https://www.synopsys.com/dw/ipdir.php?ds=sw_metaware>`_ installed on your
+   host.
 
-#. Install the ISSM toolchain by downloading it from the Intel Developer Zone's
-   `ISSM Toolchain`_ downloads page, then extracting the archive somewhere on
-   your system.
+#. :ref:`Set these environment variables <env_vars>`:
 
-   .. warning::
+   - Set :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` to ``arcmwdt``.
+   - Set :envvar:`ARCMWDT_TOOLCHAIN_PATH` to the toolchain installation
+     directory. MWDT installation provides :envvar:`METAWARE_ROOT` so simply set
+     :envvar:`ARCMWDT_TOOLCHAIN_PATH` to ``$METAWARE_ROOT/../`` (Linux)
+     or ``%METAWARE_ROOT%\..\`` (Windows)
 
-      Like the Zephyr repository, do not install the toolchain in a directory
-      with spaces anywhere in the path.
-
-#. Configure the environment variables needed to inform the Zephyr build system
-   to use this toolchain:
-
-   - Set :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` to ``issm``.
-   - Set :envvar:`ISSM_INSTALLATION_PATH` to the directory containing the
-     extracted files.
-
-   For example:
+#. To check that you have set these variables correctly in your current
+   environment, follow these example shell sessions (the
+   :envvar:`ARCMWDT_TOOLCHAIN_PATH` values may be different on your system):
 
    .. code-block:: console
 
-      # Linux
-      export ZEPHYR_TOOLCHAIN_VARIANT=issm
-      export ISSM_INSTALLATION_PATH=/home/you/Downloads/issm0-toolchain-windows-2017-02-07
+      # Linux:
+      $ echo $ZEPHYR_TOOLCHAIN_VARIANT
+      arcmwdt
+      $ echo $ARCMWDT_TOOLCHAIN_PATH
+      /home/you/ARC/MWDT_2019.12/
 
-      # Windows in cmd.exe
-      set ZEPHYR_TOOLCHAIN_VARIANT=issm
-      set ISSM_INSTALLATION_PATH=c:\issm0-toolchain-windows-2017-01-25
-
-.. _xtools_x_compilers:
+      # Windows
+      > echo %ZEPHYR_TOOLCHAIN_VARIANT%
+      arcmwdt
+      > echo %ARCMWDT_TOOLCHAIN_PATH%
+      C:\ARC\MWDT_2019.12\
 
 Crosstool-NG
 ************
@@ -107,20 +107,22 @@ You can build toolchains from source code using crosstool-NG.
 
       Currently, only i586 and Arm toolchain builds are verified.
 
-#. Configure the environment variables needed to inform the Zephyr build system
-   to use this toolchain:
+#. :ref:`Set these environment variables <env_vars>`:
 
    - Set :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` to ``xtools``.
    - Set :envvar:`XTOOLS_TOOLCHAIN_PATH` to the toolchain build directory.
 
-   For example:
+#. To check that you have set these variables correctly in your current
+   environment, follow these example shell sessions (the
+   :envvar:`XTOOLS_TOOLCHAIN_PATH` values may be different on your system):
 
    .. code-block:: console
 
-      export ZEPHYR_TOOLCHAIN_VARIANT=xtools
-      export XTOOLS_TOOLCHAIN_PATH=/Volumes/CrossToolNGNew/build/output/
+      # Linux, macOS:
+      $ echo $ZEPHYR_TOOLCHAIN_VARIANT
+      xtools
+      $ echo $XTOOLS_TOOLCHAIN_PATH
+      /Volumes/CrossToolNGNew/build/output/
 
 .. _GNU ARM Embedded: https://developer.arm.com/open-source/gnu-toolchain/gnu-rm
-.. _ISSM Toolchain: https://software.intel.com/en-us/articles/issm-toolchain-only-download
-.. _Getting Started on Arduino 101 with ISSM: https://software.intel.com/en-us/articles/getting-started-arduino-101genuino-101-with-intel-system-studio-for-microcontrollers
 .. _crosstool-ng site: http://crosstool-ng.org

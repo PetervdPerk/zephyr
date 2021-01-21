@@ -7,6 +7,7 @@
 #include <zephyr.h>
 #include <syscall_handler.h>
 #include <ztest.h>
+#include <kernel_internal.h>
 
 #define SEM_ARRAY_SIZE	16
 
@@ -65,10 +66,14 @@ void object_permission_checks(struct k_sem *sem, bool skip_init)
 		      "object should have had sufficient permissions");
 }
 
-extern const k_tid_t _main_thread;
-
 /**
- * @brief Tests to verify object permission
+ * @brief Test to verify object permission
+ *
+ * @details
+ * - The kernel must be able to associate kernel object memory addresses
+ *   with whether the calling thread has access to that object, the object is
+ *   of the expected type, and the object is of the expected init state.
+ * - Test support freeing kernel objects allocated at runtime manually.
  *
  * @ingroup kernel_memprotect_tests
  *
@@ -93,7 +98,7 @@ void test_generic_object(void)
 		/* Give an extra reference to another thread so the object
 		 * doesn't disappear if we revoke our own
 		 */
-		k_object_access_grant(dyn_sem[i], _main_thread);
+		k_object_access_grant(dyn_sem[i], &z_main_thread);
 	}
 
 	/* dynamic object table well-populated with semaphores at this point */

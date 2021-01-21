@@ -8,13 +8,16 @@
 #include <zephyr.h>
 #include <init.h>
 #include <errno.h>
-#include <misc/mempool.h>
+#include <sys/math_extras.h>
 #include <string.h>
 #include <app_memory/app_memdomain.h>
+#include <sys/sys_heap.h>
 
 #define LOG_LEVEL CONFIG_KERNEL_LOG_LEVEL
 #include <logging/log.h>
-LOG_MODULE_DECLARE(os);
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
+
+#ifdef CONFIG_MINIMAL_LIBC_MALLOC
 
 #if (CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE > 0)
 #ifdef CONFIG_USERSPACE
@@ -24,15 +27,15 @@ K_APPMEM_PARTITION_DEFINE(z_malloc_partition);
 #define POOL_SECTION .data
 #endif /* CONFIG_USERSPACE */
 
-K_MUTEX_DEFINE(malloc_mutex);
-SYS_MEM_POOL_DEFINE(z_malloc_mem_pool, &malloc_mutex, 16,
-		    CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE, 1, 4, POOL_SECTION);
+#define HEAP_BYTES CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE
+
+Z_GENERIC_SECTION(POOL_SECTION) static struct sys_heap z_malloc_heap;
+Z_GENERIC_SECTION(POOL_SECTION) static char z_malloc_heap_mem[HEAP_BYTES];
 
 void *malloc(size_t size)
 {
 	void *ret;
-
-	ret = sys_mem_pool_alloc(&z_malloc_mem_pool, size);
+	ret = sys_heap_alloc(&z_malloc_heap, size);
 	if (ret == NULL) {
 		errno = ENOMEM;
 	}
@@ -40,16 +43,25 @@ void *malloc(size_t size)
 	return ret;
 }
 
-static int malloc_prepare(struct device *unused)
+static int malloc_prepare(const struct device *unused)
 {
 	ARG_UNUSED(unused);
 
-#ifdef CONFIG_USERSPACE
-	k_object_access_all_grant(&malloc_mutex);
-#endif
-	sys_mem_pool_init(&z_malloc_mem_pool);
+	sys_heap_init(&z_malloc_heap, z_malloc_heap_mem, HEAP_BYTES);
 
 	return 0;
+}
+
+void *realloc(void *ptr, size_t requested_size)
+{
+	void *ret = sys_heap_realloc(&z_malloc_heap, ptr, requested_size);
+
+	return ret == NULL ? ptr : ret;
+}
+
+void free(void *ptr)
+{
+	sys_heap_free(&z_malloc_heap, ptr);
 }
 
 SYS_INIT(malloc_prepare, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
@@ -58,35 +70,32 @@ void *malloc(size_t size)
 {
 	ARG_UNUSED(size);
 
-	LOG_DBG("CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE is 0");
+	LOG_ERR("CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE is 0");
 	errno = ENOMEM;
 
 	return NULL;
 }
-#endif
 
 void free(void *ptr)
 {
-	sys_mem_pool_free(ptr);
+	ARG_UNUSED(ptr);
 }
 
-static bool size_t_mul_overflow(size_t a, size_t b, size_t *res)
+void *realloc(void *ptr, size_t requested_size)
 {
-#if __SIZEOF_SIZE_T__ == 4
-	return __builtin_umul_overflow((unsigned int)a, (unsigned int)b,
-				       (unsigned int *)res);
-#else /* __SIZEOF_SIZE_T__ == 8 */
-	return __builtin_umulll_overflow((unsigned long long)a,
-					 (unsigned long long)b,
-					 (unsigned long long *)res);
-#endif
+	ARG_UNUSED(ptr);
+	return malloc(requested_size);
 }
+#endif
 
+#endif /* CONFIG_MINIMAL_LIBC_MALLOC */
+
+#ifdef CONFIG_MINIMAL_LIBC_CALLOC
 void *calloc(size_t nmemb, size_t size)
 {
 	void *ret;
 
-	if (size_t_mul_overflow(nmemb, size, &size)) {
+	if (size_mul_overflow(nmemb, size, &size)) {
 		errno = ENOMEM;
 		return NULL;
 	}
@@ -99,54 +108,19 @@ void *calloc(size_t nmemb, size_t size)
 
 	return ret;
 }
+#endif /* CONFIG_MINIMAL_LIBC_CALLOC */
 
-void *realloc(void *ptr, size_t requested_size)
-{
-	struct sys_mem_pool_block *blk;
-	size_t block_size, total_requested_size;
-	void *new_ptr;
-
-	if (requested_size == 0) {
-		return NULL;
-	}
-
-	/* Stored right before the pointer passed to the user */
-	blk = (struct sys_mem_pool_block *)((char *)ptr - sizeof(*blk));
-
-	/* Determine size of previously allocated block by its level.
-	 * Most likely a bit larger than the original allocation
-	 */
-	block_size = _ALIGN4(blk->pool->base.max_sz);
-	for (int i = 1; i <= blk->level; i++) {
-		block_size = _ALIGN4(block_size / 4);
-	}
-
-	/* We really need this much memory */
-	total_requested_size = requested_size +
-		sizeof(struct sys_mem_pool_block);
-
-	if (block_size >= total_requested_size) {
-		/* Existing block large enough, nothing to do */
-		return ptr;
-	}
-
-	new_ptr = malloc(requested_size);
-	if (new_ptr == NULL) {
-		return NULL;
-	}
-
-	memcpy(new_ptr, ptr, block_size - sizeof(struct sys_mem_pool_block));
-	free(ptr);
-
-	return new_ptr;
-}
-
-
+#ifdef CONFIG_MINIMAL_LIBC_REALLOCARRAY
 void *reallocarray(void *ptr, size_t nmemb, size_t size)
 {
-	if (size_t_mul_overflow(nmemb, size, &size)) {
+#if (CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE > 0)
+	if (size_mul_overflow(nmemb, size, &size)) {
 		errno = ENOMEM;
 		return NULL;
 	}
-	return realloc(ptr, size);
+	return sys_heap_realloc(&z_malloc_heap, ptr, size);
+#else
+	return NULL;
+#endif
 }
+#endif /* CONFIG_MINIMAL_LIBC_REALLOCARRAY */

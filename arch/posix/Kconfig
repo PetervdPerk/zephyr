@@ -1,10 +1,7 @@
-# Kconfig - General configuration options
+# General configuration options
 
-#
 # Copyright (c) 2017 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menu "POSIX (native) Options"
 	depends on ARCH_POSIX
@@ -14,6 +11,7 @@ config ARCH
 
 config ARCH_POSIX_RECOMMENDED_STACK_SIZE
 	int
+	default 40 if 64BIT
 	default 24
 	help
 	  In bytes, stack size for Zephyr threads meant only for the POSIX

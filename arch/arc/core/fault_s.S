@@ -19,7 +19,6 @@
 #include <syscall.h>
 
 GTEXT(_Fault)
-GTEXT(_do_kernel_oops)
 GTEXT(__reset)
 GTEXT(__memory_error)
 GTEXT(__instruction_error)
@@ -35,17 +34,31 @@ GTEXT(__ev_div_zero)
 GTEXT(__ev_dc_error)
 GTEXT(__ev_maligned)
 #ifdef CONFIG_IRQ_OFFLOAD
-GTEXT(_irq_do_offload);
+GTEXT(z_irq_do_offload);
 #endif
 
-GDATA(exc_nest_count)
+.macro _save_exc_regs_into_stack
+#ifdef CONFIG_ARC_HAS_SECURE
+	/* ERSEC_STAT is IOW/RAZ in normal mode */
+	lr r0,[_ARC_V2_ERSEC_STAT]
+	st_s r0, [sp, ___isf_t_sec_stat_OFFSET]
+#endif
+	lr r0,[_ARC_V2_ERET]
+	st_s r0, [sp, ___isf_t_pc_OFFSET]
+	lr r0,[_ARC_V2_ERSTATUS]
+	st_s r0, [sp, ___isf_t_status32_OFFSET]
+.endm
 
-	.balign 4
-SECTION_VAR(BSS, saved_value)
-	.word 0
-
-/* the necessary stack size for exception handling */
-#define EXCEPTION_STACK_SIZE 384
+/*
+ * The exception handling will use top part of interrupt stack to
+ * get smaller memory footprint, because exception is not frequent.
+ * To reduce the impact on interrupt handling, especially nested interrupt
+ * the top part of interrupt stack cannot be too large, so add a check
+ * here
+ */
+#if CONFIG_ARC_EXCEPTION_STACK_SIZE > (CONFIG_ISR_STACK_SIZE >> 1)
+#error "interrupt stack size is too small"
+#endif
 
 /*
  * @brief Fault handler installed in the fault and reserved vectors
@@ -65,15 +78,15 @@ SECTION_SUBSEC_FUNC(TEXT,__fault,__ev_dc_error)
 SECTION_SUBSEC_FUNC(TEXT,__fault,__ev_maligned)
 
 _exc_entry:
-	st sp, [saved_value]
 	/*
 	 * re-use the top part of interrupt stack as exception
 	 * stack. If this top part is used by interrupt handling,
 	 * and exception is raised, then here it's guaranteed that
 	 * exception handling has necessary stack to use
 	 */
-	mov_s sp, _interrupt_stack
-	add sp, sp, EXCEPTION_STACK_SIZE
+	mov ilink, sp
+	_get_curr_cpu_irq_stack sp
+	sub sp, sp, (CONFIG_ISR_STACK_SIZE - CONFIG_ARC_EXCEPTION_STACK_SIZE)
 
 	/*
 	 * save caller saved registers
@@ -86,33 +99,30 @@ _exc_entry:
 	 */
 	_create_irq_stack_frame
 
-#ifdef CONFIG_ARC_HAS_SECURE
-	lr r0,[_ARC_V2_ERSEC_STAT]
-	st_s r0, [sp, ___isf_t_sec_stat_OFFSET]
-#endif
-	lr r0,[_ARC_V2_ERSTATUS]
-	st_s r0, [sp, ___isf_t_status32_OFFSET]
-	lr r0,[_ARC_V2_ERET]
-	st_s r0, [sp, ___isf_t_pc_OFFSET] /* eret into pc */
+	_save_exc_regs_into_stack
 
 	/* sp is parameter of _Fault */
-	mov r0, sp
+	mov_s r0, sp
+	/* ilink is the thread's original sp */
+	mov r1, ilink
 	jl _Fault
 
 _exc_return:
+/* the exception cause must be fixed in exception handler when exception returns
+ * directly, or exception will be repeated.
+ *
+ * If thread switch is raised in exception handler, the context of old thread will
+ * not be saved, i.e., it cannot be recovered, because we don't know where the
+ * exception comes out,  thread context?irq_context?nest irq context?
+ */
 
-#ifdef CONFIG_PREEMPT_ENABLED
-	mov_s r1, _kernel
-	ld_s r2, [r1, _kernel_offset_to_current]
+	_get_next_switch_handle
 
-	/* check if the current thread needs to be rescheduled */
-	ld_s r0, [r1, _kernel_offset_to_ready_q_cache]
 	breq r0, r2, _exc_return_from_exc
 
-	ld_s r2, [r1, _kernel_offset_to_ready_q_cache]
-	st_s r2, [r1, _kernel_offset_to_current]
+	mov_s r2, r0
 
-#ifdef CONFIG_ARC_HAS_SECURE
+#ifdef CONFIG_ARC_SECURE_FIRMWARE
 	/*
 	 * sync up the ERSEC_STAT.ERM and SEC_STAT.IRM.
 	 * use a fake interrupt return to simulate an exception turn.
@@ -121,34 +131,66 @@ _exc_return:
 	 */
 	lr r3,[_ARC_V2_ERSEC_STAT]
 	btst r3, 31
-	bset.nz r3, r3, 3
-	bclr.z r3, r3, 3
-	/* sflag r3 */
-	/* sflag instruction is not supported in current ARC GNU */
-	.long 0x00ff302f
+	bset.nz r3, r3, _ARC_V2_SEC_STAT_IRM_BIT
+	bclr.z r3, r3, _ARC_V2_SEC_STAT_IRM_BIT
+	sflag r3
 #endif
-	/* clear AE bit to forget this was an exception */
+	/* clear AE bit to forget this was an exception, and go to
+	 * register bank0 (if exception is raised in firq with 2 reg
+	 * banks, then we may be bank1)
+	 */
+#if defined(CONFIG_ARC_FIRQ) && CONFIG_RGF_NUM_BANKS != 1
+	/* save r2 in ilink because of the possible following reg
+	 * bank switch
+	 */
+	mov ilink, r2
+#endif
 	lr r3, [_ARC_V2_STATUS32]
-	and r3,r3,(~_ARC_V2_STATUS32_AE)
+	and r3,r3,(~(_ARC_V2_STATUS32_AE | _ARC_V2_STATUS32_RB(7)))
 	kflag r3
-	/* pretend lowest priority interrupt happened to use common handler */
-	lr r3, [_ARC_V2_AUX_IRQ_ACT]
-	or r3,r3,(1<<(CONFIG_NUM_IRQ_PRIO_LEVELS-1)) /* use lowest */
-	sr r3, [_ARC_V2_AUX_IRQ_ACT]
+	/* pretend lowest priority interrupt happened to use common handler
+	 * if exception is raised in irq, i.e., _ARC_V2_AUX_IRQ_ACT !=0,
+	 * ignore irq handling, we cannot return to irq handling which may
+	 * raise exception again. The ignored interrupts will be re-triggered
+	 * if not cleared, or re-triggered by interrupt sources, or just missed
+	 */
 
-	/* Assumption: r2 has current thread */
-	b _rirq_common_interrupt_swap
+#ifdef CONFIG_ARC_SECURE_FIRMWARE
+	mov_s r3, (1 << (ARC_N_IRQ_START_LEVEL - 1))
+#else
+	mov_s r3, (1 << (CONFIG_NUM_IRQ_PRIO_LEVELS - 1))
 #endif
+
+#ifdef CONFIG_ARC_NORMAL_FIRMWARE
+	push_s r2
+	mov_s r0, _ARC_V2_AUX_IRQ_ACT
+	mov_s r1, r3
+	mov_s r6, ARC_S_CALL_AUX_WRITE
+	sjli SJLI_CALL_ARC_SECURE
+	pop_s r2
+#else
+	sr r3, [_ARC_V2_AUX_IRQ_ACT]
+#endif
+
+#if defined(CONFIG_ARC_FIRQ) && CONFIG_RGF_NUM_BANKS != 1
+	mov r2, ilink
+#endif
+
+	/* Assumption: r2 has next thread */
+	b _rirq_newthread_switch
 
 _exc_return_from_exc:
+	/* exception handler may change return address.
+	 * reload it
+	 */
 	ld_s r0, [sp, ___isf_t_pc_OFFSET]
 	sr r0, [_ARC_V2_ERET]
 
 	_pop_irq_stack_frame
-	ld sp, [saved_value]
+	mov sp, ilink
 	rtie
 
-
+/* separated entry for trap which may be used by irq_offload, USERPSACE */
 SECTION_SUBSEC_FUNC(TEXT,__fault,__ev_trap)
 	/* get the id of trap_s */
 	lr ilink, [_ARC_V2_ECR]
@@ -156,30 +198,33 @@ SECTION_SUBSEC_FUNC(TEXT,__fault,__ev_trap)
 #ifdef CONFIG_USERSPACE
 	cmp ilink, _TRAP_S_CALL_SYSTEM_CALL
 	bne _do_non_syscall_trap
-/* do sys_call */
+	/* do sys_call */
 	mov ilink, K_SYSCALL_LIMIT
 	cmp r6, ilink
-	blt valid_syscall_id
+	blo valid_syscall_id
 
-	mov r0, r6
-	mov r6, K_SYSCALL_BAD
+	mov_s r0, r6
+	mov_s r6, K_SYSCALL_BAD
 
 valid_syscall_id:
-#ifdef CONFIG_ARC_HAS_SECURE
-	lr ilink, [_ARC_V2_ERSEC_STAT]
-	push ilink
-#endif
-	lr ilink, [_ARC_V2_ERET]
-	push ilink
-	lr ilink, [_ARC_V2_ERSTATUS]
-	push ilink
+	/* create a sys call frame
+	 * caller regs (r0 - 12) are saved in _create_irq_stack_frame
+	 * ok to use them later
+	 */
+	_create_irq_stack_frame
 
+	_save_exc_regs_into_stack
 
-	bclr ilink, ilink, _ARC_V2_STATUS32_U_BIT
-	sr ilink, [_ARC_V2_ERSTATUS]
+	/* exc return and do sys call in kernel mode,
+	 * so need to clear U bit, r0 is already loaded
+	 * with ERSTATUS in _save_exc_regs_into_stack
+	 */
 
-	mov ilink, _arc_do_syscall
-	sr ilink, [_ARC_V2_ERET]
+	bclr r0, r0, _ARC_V2_STATUS32_U_BIT
+	sr r0, [_ARC_V2_ERSTATUS]
+
+	mov_s r0, _arc_do_syscall
+	sr r0, [_ARC_V2_ERET]
 
 	rtie
 
@@ -196,85 +241,27 @@ _do_non_syscall_trap:
 	/* save caller saved registers */
 	_create_irq_stack_frame
 
-#ifdef CONFIG_ARC_HAS_SECURE
-	lr r0,[_ARC_V2_ERSEC_STAT]
-	st_s r0, [sp, ___isf_t_sec_stat_OFFSET]
-#endif
-	lr r0,[_ARC_V2_ERSTATUS]
-	st_s r0, [sp, ___isf_t_status32_OFFSET]
-	lr r0,[_ARC_V2_ERET]
-	st_s r0, [sp, ___isf_t_pc_OFFSET] /* eret into pc */
+	_save_exc_regs_into_stack
 
-	ld r1, [exc_nest_count]
-	add r0, r1, 1
-	st r0, [exc_nest_count]
-	cmp r1, 0
+	/* check whether irq stack is used */
+	_check_and_inc_int_nest_counter r0, r1
 
-	bgt.d  exc_nest_handle
-	mov r0, sp
+	bne.d exc_nest_handle
+	mov_s r0, sp
 
-	mov r1, _kernel
-	ld sp, [r1, _kernel_offset_to_irq_stack]
+	_get_curr_cpu_irq_stack sp
 exc_nest_handle:
 	push_s r0
 
-	jl _irq_do_offload
+	jl z_irq_do_offload
 
 	pop sp
 
-	mov	r1, exc_nest_count
-	ld	r0, [r1]
-	sub	r0, r0, 1
-	cmp	r0, 0
-	bne.d	_exc_return_from_exc
-	st 	r0, [r1]
+	_dec_int_nest_counter r0, r1
 
-#ifdef CONFIG_PREEMPT_ENABLED
-	mov_s r1, _kernel
-	ld_s r2, [r1, _kernel_offset_to_current]
-
-	/* check if the current thread needs to be rescheduled */
-	ld_s r0, [r1, _kernel_offset_to_ready_q_cache]
-	breq r0, r2, _exc_return_from_irqoffload_trap
-
-	_save_callee_saved_regs
-
-	st _CAUSE_RIRQ, [r2, _thread_offset_to_relinquish_cause]
-	/* note: Ok to use _CAUSE_RIRQ since everything is saved */
-
-	ld_s r2, [r1, _kernel_offset_to_ready_q_cache]
-	st_s r2, [r1, _kernel_offset_to_current]
-
-#ifdef CONFIG_ARC_HAS_SECURE
-	/*
-	 * sync up the ERSEC_STAT.ERM and SEC_STAT.IRM.
-	 * use a fake interrupt return to simulate an exception turn.
-	 * ERM and IRM record which mode the cpu should return, 1: secure
-	 * 0: normal
-	 */
-	lr r3,[_ARC_V2_ERSEC_STAT]
-	btst r3, 31
-	bset.nz r3, r3, 3
-	bclr.z r3, r3, 3
-	/* sflag r3 */
-	/* sflag instruction is not supported in current ARC GNU */
-	.long 0x00ff302f
-#endif
-	/* clear AE bit to forget this was an exception */
-	lr r3, [_ARC_V2_STATUS32]
-	and r3,r3,(~_ARC_V2_STATUS32_AE)
-	kflag r3
-	/* pretend lowest priority interrupt happened to use common handler */
-	lr r3, [_ARC_V2_AUX_IRQ_ACT]
-	or r3,r3,(1<<(CONFIG_NUM_IRQ_PRIO_LEVELS-1)) /* use lowest */
-	sr r3, [_ARC_V2_AUX_IRQ_ACT]
-
-	/* Assumption: r2 has current thread */
-	b _rirq_common_interrupt_swap
-#endif
-
-_exc_return_from_irqoffload_trap:
 	_pop_irq_stack_frame
+
+	/* ERSTATUS, ERET are not changed, so ok to rtie */
 	rtie
 #endif /* CONFIG_IRQ_OFFLOAD */
 	b _exc_entry

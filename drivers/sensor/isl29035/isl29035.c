@@ -6,22 +6,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT isil_isl29035
+
 #include <kernel.h>
 #include <init.h>
-#include <i2c.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/i2c.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
 #include <logging/log.h>
 
 #include "isl29035.h"
 
-#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-LOG_MODULE_REGISTER(ISL29035);
+LOG_MODULE_REGISTER(ISL29035, CONFIG_SENSOR_LOG_LEVEL);
 
-static int isl29035_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int isl29035_sample_fetch(const struct device *dev,
+				 enum sensor_channel chan)
 {
-	struct isl29035_driver_data *drv_data = dev->driver_data;
-	u8_t msb, lsb;
+	struct isl29035_driver_data *drv_data = dev->data;
+	uint8_t msb, lsb;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
@@ -40,18 +42,18 @@ static int isl29035_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return 0;
 }
 
-static int isl29035_channel_get(struct device *dev,
+static int isl29035_channel_get(const struct device *dev,
 				enum sensor_channel chan,
 				struct sensor_value *val)
 {
-	struct isl29035_driver_data *drv_data = dev->driver_data;
-	u64_t tmp;
+	struct isl29035_driver_data *drv_data = dev->data;
+	uint64_t tmp;
 
 #if CONFIG_ISL29035_MODE_ALS
 	/* val = sample_val * lux_range / (2 ^ adc_data_bits) */
-	tmp = (u64_t)drv_data->data_sample * ISL29035_LUX_RANGE;
+	tmp = (uint64_t)drv_data->data_sample * ISL29035_LUX_RANGE;
 	val->val1 = tmp >> ISL29035_ADC_DATA_BITS;
-	tmp = (tmp & ISL29035_ADC_DATA_MASK) * 1000000;
+	tmp = (tmp & ISL29035_ADC_DATA_MASK) * 1000000U;
 	val->val2 = tmp >> ISL29035_ADC_DATA_BITS;
 #elif CONFIG_ISL29035_MODE_IR
 	ARG_UNUSED(tmp);
@@ -71,11 +73,11 @@ static const struct sensor_driver_api isl29035_api = {
 	.channel_get = &isl29035_channel_get,
 };
 
-static int isl29035_init(struct device *dev)
+static int isl29035_init(const struct device *dev)
 {
-	struct isl29035_driver_data *drv_data = dev->driver_data;
+	struct isl29035_driver_data *drv_data = dev->data;
 
-	drv_data->i2c = device_get_binding(CONFIG_ISL29035_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
 		LOG_DBG("Failed to get I2C device.");
 		return -EINVAL;
@@ -142,6 +144,6 @@ static int isl29035_init(struct device *dev)
 
 struct isl29035_driver_data isl29035_data;
 
-DEVICE_AND_API_INIT(isl29035_dev, CONFIG_ISL29035_NAME, &isl29035_init,
+DEVICE_DT_INST_DEFINE(0, &isl29035_init, device_pm_control_nop,
 		    &isl29035_data, NULL, POST_KERNEL,
 		    CONFIG_SENSOR_INIT_PRIORITY, &isl29035_api);

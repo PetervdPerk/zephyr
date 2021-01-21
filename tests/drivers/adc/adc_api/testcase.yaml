@@ -1,5 +1,5 @@
 common:
-  tags: peripheral adc
+  tags: adc drivers userspace
 tests:
-  peripheral.adc:
+  drivers.adc:
     depends_on: adc

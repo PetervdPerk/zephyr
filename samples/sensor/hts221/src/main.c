@@ -6,11 +6,11 @@
 
 #include <zephyr.h>
 #include <device.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <stdio.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
-static void process_sample(struct device *dev)
+static void process_sample(const struct device *dev)
 {
 	static unsigned int obs;
 	struct sensor_value temp, hum;
@@ -40,7 +40,7 @@ static void process_sample(struct device *dev)
 	       sensor_value_to_double(&hum));
 }
 
-static void hts221_handler(struct device *dev,
+static void hts221_handler(const struct device *dev,
 			   struct sensor_trigger *trig)
 {
 	process_sample(dev);
@@ -48,7 +48,7 @@ static void hts221_handler(struct device *dev,
 
 void main(void)
 {
-	struct device *dev = device_get_binding("HTS221");
+	const struct device *dev = device_get_binding("HTS221");
 
 	if (dev == NULL) {
 		printf("Could not get HTS221 device\n");
@@ -68,7 +68,7 @@ void main(void)
 
 	while (!IS_ENABLED(CONFIG_HTS221_TRIGGER)) {
 		process_sample(dev);
-		k_sleep(2000);
+		k_sleep(K_MSEC(2000));
 	}
 	k_sleep(K_FOREVER);
 }

@@ -1,13 +1,11 @@
-# Kconfig - MAX30101 heart rate sensor
-#
+# MAX30101 heart rate sensor
+
 # Copyright (c) 2017, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menuconfig MAX30101
 	bool "MAX30101 Pulse Oximeter and Heart Rate Sensor"
-	depends on I2C && HAS_DTS_I2C
+	depends on I2C
 
 if MAX30101
 

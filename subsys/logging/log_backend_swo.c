@@ -18,7 +18,7 @@
  * this frequency should much the one set by the SWO viewer program.
  *
  * The initialization code assumes that SWO core frequency is equal to HCLK
- * as defined by SYS_CLOCK_HW_CYCLES_PER_SEC Kconfig option. This may require
+ * as defined by the clock-frequency property in the CPU node. This may require
  * additional, vendor specific configuration.
  */
 
@@ -26,6 +26,7 @@
 #include <logging/log_core.h>
 #include <logging/log_msg.h>
 #include <logging/log_output.h>
+#include <logging/log_backend_std.h>
 #include <soc.h>
 
 /** The stimulus port from which SWO data is received and displayed */
@@ -35,19 +36,23 @@
 #if CONFIG_LOG_BACKEND_SWO_FREQ_HZ == 0
 #define SWO_FREQ_DIV  1
 #else
-#define SWO_FREQ (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC \
-		  + (CONFIG_LOG_BACKEND_SWO_FREQ_HZ / 2))
+#if DT_NODE_HAS_PROP(DT_PATH(cpus, cpu_0), clock_frequency)
+#define CPU_FREQ DT_PROP(DT_PATH(cpus, cpu_0), clock_frequency)
+#else
+#error "Missing DT 'clock-frequency' property on cpu@0 node"
+#endif
+#define SWO_FREQ (CPU_FREQ + (CONFIG_LOG_BACKEND_SWO_FREQ_HZ / 2))
 #define SWO_FREQ_DIV  (SWO_FREQ / CONFIG_LOG_BACKEND_SWO_FREQ_HZ)
 #if SWO_FREQ_DIV > 0xFFFF
 #error CONFIG_LOG_BACKEND_SWO_FREQ_HZ is too low. SWO clock divider is 16-bit. \
 	Minimum supported SWO clock frequency is \
-	CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC/2^16.
+	[CPU Clock Frequency]/2^16.
 #endif
 #endif
 
-static u8_t buf[1];
+static uint8_t buf[1];
 
-static int char_out(u8_t *data, size_t length, void *ctx)
+static int char_out(uint8_t *data, size_t length, void *ctx)
 {
 	ARG_UNUSED(ctx);
 
@@ -58,26 +63,15 @@ static int char_out(u8_t *data, size_t length, void *ctx)
 	return length;
 }
 
-LOG_OUTPUT_DEFINE(log_output, char_out, buf, sizeof(buf));
+LOG_OUTPUT_DEFINE(log_output_swo, char_out, buf, sizeof(buf));
 
 static void log_backend_swo_put(const struct log_backend *const backend,
 		struct log_msg *msg)
 {
-	log_msg_get(msg);
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_SWO_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
 
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	log_output_msg_process(&log_output, msg, flags);
-
-	log_msg_put(msg);
+	log_backend_std_put(&log_output_swo, flag, msg);
 }
 
 static void log_backend_swo_init(void)
@@ -110,10 +104,45 @@ static void log_backend_swo_panic(struct log_backend const *const backend)
 {
 }
 
+static void dropped(const struct log_backend *const backend, uint32_t cnt)
+{
+	ARG_UNUSED(backend);
+
+	log_backend_std_dropped(&log_output_swo, cnt);
+}
+
+static void log_backend_swo_sync_string(const struct log_backend *const backend,
+		struct log_msg_ids src_level, uint32_t timestamp,
+		const char *fmt, va_list ap)
+{
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_SWO_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
+
+	log_backend_std_sync_string(&log_output_swo, flag, src_level,
+				    timestamp, fmt, ap);
+}
+
+static void log_backend_swo_sync_hexdump(
+		const struct log_backend *const backend,
+		struct log_msg_ids src_level, uint32_t timestamp,
+		const char *metadata, const uint8_t *data, uint32_t length)
+{
+	uint32_t flag = IS_ENABLED(CONFIG_LOG_BACKEND_SWO_SYST_ENABLE) ?
+		LOG_OUTPUT_FLAG_FORMAT_SYST : 0;
+
+	log_backend_std_sync_hexdump(&log_output_swo, flag, src_level,
+				     timestamp, metadata, data, length);
+}
+
 const struct log_backend_api log_backend_swo_api = {
-	.put = log_backend_swo_put,
+	.put = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? NULL : log_backend_swo_put,
+	.put_sync_string = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ?
+			log_backend_swo_sync_string : NULL,
+	.put_sync_hexdump = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ?
+			log_backend_swo_sync_hexdump : NULL,
 	.panic = log_backend_swo_panic,
 	.init = log_backend_swo_init,
+	.dropped = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? NULL : dropped,
 };
 
 LOG_BACKEND_DEFINE(log_backend_swo, log_backend_swo_api, true);

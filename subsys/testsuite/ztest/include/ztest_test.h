@@ -15,15 +15,19 @@
 
 #include <app_memory/app_memdomain.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct unit_test {
 	const char *name;
 	void (*test)(void);
 	void (*setup)(void);
 	void (*teardown)(void);
-	u32_t thread_options;
+	uint32_t thread_options;
 };
 
-void _ztest_run_test_suite(const char *name, struct unit_test *suite);
+void z_ztest_run_test_suite(const char *name, struct unit_test *suite);
 
 /**
  * @defgroup ztest_test Ztest testing macros
@@ -48,7 +52,7 @@ void ztest_test_fail(void);
  *
  * Normally a test passes just by returning without an assertion failure.
  * However, if the success case for your test involves a fatal fault,
- * you can call this function from z_SysFatalErrorHandler to indicate that
+ * you can call this function from k_sys_fatal_error_handler to indicate that
  * the test passed before aborting the thread.
  */
 void ztest_test_pass(void);
@@ -126,6 +130,51 @@ static inline void unit_test_noop(void)
 #define ztest_user_unit_test(fn) \
 	ztest_user_unit_test_setup_teardown(fn, unit_test_noop, unit_test_noop)
 
+__syscall void z_test_1cpu_start(void);
+__syscall void z_test_1cpu_stop(void);
+
+/**
+ * @brief Define a SMP-unsafe test function
+ *
+ * As ztest_unit_test(), but ensures all test code runs on only
+ * one CPU when in SMP.
+ *
+ * @param fn Test function
+ */
+#ifdef CONFIG_SMP
+#define ztest_1cpu_unit_test(fn)					\
+	ztest_unit_test_setup_teardown(fn, z_test_1cpu_start, z_test_1cpu_stop)
+#else
+#define ztest_1cpu_unit_test(fn) ztest_unit_test(fn)
+#endif
+
+/**
+ * @brief Define a SMP-unsafe test function that should run as a user thread
+ *
+ * As ztest_user_unit_test(), but ensures all test code runs on only
+ * one CPU when in SMP.
+ *
+ * @param fn Test function
+ */
+#ifdef CONFIG_SMP
+#define ztest_1cpu_user_unit_test(fn) \
+	ztest_user_unit_test_setup_teardown(fn, z_test_1cpu_start, z_test_1cpu_stop)
+#else
+#define ztest_1cpu_user_unit_test(fn) ztest_user_unit_test(fn)
+#endif
+
+/* definitions for use with testing application shared memory   */
+#ifdef CONFIG_USERSPACE
+#define ZTEST_DMEM	K_APP_DMEM(ztest_mem_partition)
+#define ZTEST_BMEM	K_APP_BMEM(ztest_mem_partition)
+#define ZTEST_SECTION	K_APP_DMEM_SECTION(ztest_mem_partition)
+extern struct k_mem_partition ztest_mem_partition;
+#else
+#define ZTEST_DMEM
+#define ZTEST_BMEM
+#define ZTEST_SECTION	.data
+#endif
+
 /**
  * @brief Define a test suite
  *
@@ -139,23 +188,10 @@ static inline void unit_test_noop(void)
  *      ztest_run_test_suite(test_suite_name);
  * ```
  *
- * @param name Name of the testing suite
+ * @param suite Name of the testing suite
  */
-
-/* definitions for use with testing application shared memory   */
-#ifdef CONFIG_USERSPACE
-#define ZTEST_DMEM	K_APP_DMEM(ztest_mem_partition)
-#define ZTEST_BMEM	K_APP_BMEM(ztest_mem_partition)
-#define ZTEST_SECTION	K_APP_DMEM_SECTION(ztest_mem_partition)
-extern struct k_mem_partition ztest_mem_partition;
-extern struct k_mem_domain ztest_mem_domain;
-#else
-#define ZTEST_DMEM
-#define ZTEST_BMEM
-#define ZTEST_SECTION	.data
-#endif
-#define ztest_test_suite(name, ...) \
-	static ZTEST_DMEM struct unit_test _##name[] = { \
+#define ztest_test_suite(suite, ...) \
+	static ZTEST_DMEM struct unit_test _##suite[] = { \
 		__VA_ARGS__, { 0 } \
 	}
 /**
@@ -164,10 +200,17 @@ extern struct k_mem_domain ztest_mem_domain;
  * @param suite Test suite to run.
  */
 #define ztest_run_test_suite(suite) \
-	_ztest_run_test_suite(#suite, _##suite)
+	z_ztest_run_test_suite(#suite, _##suite)
 
 /**
  * @}
  */
+#ifndef ZTEST_UNITTEST
+#include <syscalls/ztest_test.h>
+#endif
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __ZTEST_ASSERT_H__ */

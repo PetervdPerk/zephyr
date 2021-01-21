@@ -8,7 +8,17 @@
 #ifndef ZEPHYR_INCLUDE_NET_SNTP_H_
 #define ZEPHYR_INCLUDE_NET_SNTP_H_
 
+#ifdef CONFIG_NET_SOCKETS_POSIX_NAMES
 #include <net/socket.h>
+#else
+#include <posix/sys/socket.h>
+#include <posix/unistd.h>
+#include <posix/poll.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Simple Network Time Protocol API
@@ -29,7 +39,13 @@ struct sntp_ctx {
 	 *  This is used to check if the originated timestamp in the server
 	 *  reply matches the one in client request.
 	 */
-	u32_t expected_orig_ts;
+	uint32_t expected_orig_ts;
+};
+
+/** Time as returned by SNTP API, fractional seconds since 1 Jan 1970 */
+struct sntp_time {
+	uint64_t seconds;
+	uint32_t fraction;
 };
 
 /**
@@ -45,15 +61,17 @@ int sntp_init(struct sntp_ctx *ctx, struct sockaddr *addr,
 	      socklen_t addr_len);
 
 /**
- * @brief Send SNTP request
+ * @brief Perform SNTP query
  *
  * @param ctx Address of sntp context.
  * @param timeout Timeout of waiting for sntp response (in milliseconds).
- * @param epoch_time Seconds since 1 January 1970.
+ * @param time Timestamp including integer and fractional seconds since
+ * 1 Jan 1970 (output).
  *
- * @return 0 if ok, <0 if error.
+ * @return 0 if ok, <0 if error (-ETIMEDOUT if timeout).
  */
-int sntp_request(struct sntp_ctx *ctx, u32_t timeout, u64_t *epoch_time);
+int sntp_query(struct sntp_ctx *ctx, uint32_t timeout,
+	       struct sntp_time *time);
 
 /**
  * @brief Release SNTP context
@@ -61,6 +79,26 @@ int sntp_request(struct sntp_ctx *ctx, u32_t timeout, u64_t *epoch_time);
  * @param ctx Address of sntp context.
  */
 void sntp_close(struct sntp_ctx *ctx);
+
+/**
+ * @brief Convenience function to query SNTP in one-shot fashion
+ *
+ * Convenience wrapper which calls getaddrinfo(), sntp_init(),
+ * sntp_query(), and sntp_close().
+ *
+ * @param server Address of server in format addr[:port]
+ * @param timeout Query timeout
+ * @param time Timestamp including integer and fractional seconds since
+ * 1 Jan 1970 (output).
+ *
+ * @return 0 if ok, <0 if error (-ETIMEDOUT if timeout).
+ */
+int sntp_simple(const char *server, uint32_t timeout,
+		struct sntp_time *time);
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @}

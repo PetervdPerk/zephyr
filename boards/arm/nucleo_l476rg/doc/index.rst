@@ -123,6 +123,8 @@ The Zephyr nucleo_l476rg board configuration supports the following hardware fea
 +-----------+------------+-------------------------------------+
 | SPI       | on-chip    | spi                                 |
 +-----------+------------+-------------------------------------+
+| ADC       | on-chip    | ADC Controller                      |
++-----------+------------+-------------------------------------+
 
 Other hardware features are not yet supported on this Zephyr port.
 
@@ -153,6 +155,8 @@ For mode details please refer to `STM32 Nucleo-64 board User Manual`_.
 
 Default Zephyr Peripheral Mapping:
 ----------------------------------
+
+.. rst-class:: rst-columns
 
 - UART_1_TX : PA9
 - UART_1_RX : PA10

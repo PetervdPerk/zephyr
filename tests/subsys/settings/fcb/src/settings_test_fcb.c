@@ -9,12 +9,12 @@
 
 #include "settings_test.h"
 #include "settings_priv.h"
-#include "flash_map.h"
+#include <storage/flash_map.h>
 
-u8_t val8;
-u8_t val8_un;
-u32_t val32;
-u64_t val64;
+uint8_t val8;
+uint8_t val8_un;
+uint32_t val32;
+uint64_t val64;
 
 int test_get_called;
 int test_set_called;
@@ -23,18 +23,24 @@ int test_export_block;
 
 int c2_var_count = 1;
 
-int c1_handle_get(int argc, char **argv, char *val, int val_len_max);
-int c1_handle_set(int argc, char **argv, void *value_ctx);
+int c1_handle_get(const char *name, char *val, int val_len_max);
+int c1_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg);
 int c1_handle_commit(void);
-int c1_handle_export(int (*cb)(const char *name, void *value, size_t val_len));
+int c1_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len));
 
-int c2_handle_get(int argc, char **argv, char *val, int val_len_max);
-int c2_handle_set(int argc, char **argv, void *value_ctx);
-int c2_handle_export(int (*cb)(const char *name, void *value, size_t val_len));
+int c2_handle_get(const char *name, char *val, int val_len_max);
+int c2_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg);
+int c2_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len));
 
-int c3_handle_get(int argc, char **argv, char *val, int val_len_max);
-int c3_handle_set(int argc, char **argv, void *value_ctx);
-int c3_handle_export(int (*cb)(const char *name,  void *value, size_t val_len));
+int c3_handle_get(const char *name, char *val, int val_len_max);
+int c3_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg);
+int c3_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len));
 
 struct settings_handler c_test_handlers[] = {
 	{
@@ -63,17 +69,19 @@ struct settings_handler c_test_handlers[] = {
 char val_string[SETTINGS_TEST_FCB_VAL_STR_CNT][SETTINGS_MAX_VAL_LEN];
 char test_ref_value[SETTINGS_TEST_FCB_VAL_STR_CNT][SETTINGS_MAX_VAL_LEN];
 
-int c1_handle_get(int argc, char **argv, char *val, int val_len_max)
+int c1_handle_get(const char *name, char *val, int val_len_max)
 {
+	const char *next;
+
 	test_get_called = 1;
 
-	if (argc == 1 && !strcmp(argv[0], "mybar")) {
+	if (settings_name_steq(name, "mybar", &next) && !next) {
 		val_len_max = MIN(val_len_max, sizeof(val8));
 		memcpy(val, &val8, MIN(val_len_max, sizeof(val8)));
 		return val_len_max;
 	}
 
-	if (argc == 1 && !strcmp(argv[0], "mybar64")) {
+	if (settings_name_steq(name, "mybar64", &next) && !next) {
 		val_len_max = MIN(val_len_max, sizeof(val64));
 		memcpy(val, &val64, MIN(val_len_max, sizeof(val64)));
 		return val_len_max;
@@ -82,29 +90,31 @@ int c1_handle_get(int argc, char **argv, char *val, int val_len_max)
 	return -ENOENT;
 }
 
-int c1_handle_set(int argc, char **argv, void *value_ctx)
+int c1_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg)
 {
 	size_t val_len;
 	int rc;
+	const char *next;
 
 	test_set_called = 1;
-	if (argc == 1 && !strcmp(argv[0], "mybar")) {
-		rc = settings_val_read_cb(value_ctx, &val8, sizeof(val8));
+	if (settings_name_steq(name, "mybar", &next) && !next) {
+		rc = read_cb(cb_arg, &val8, sizeof(val8));
 		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
 		return 0;
 	}
 
-	if (argc == 1 && !strcmp(argv[0], "mybar64"))	 {
-		rc = settings_val_read_cb(value_ctx, &val64, sizeof(val64));
+	if (settings_name_steq(name, "mybar64", &next) && !next) {
+		rc = read_cb(cb_arg, &val64, sizeof(val64));
 		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
 		return 0;
 	}
 
-	if (argc == 1 && !strcmp(argv[0], "unaligned")) {
-		val_len = settings_val_get_len_cb(value_ctx);
+	if (settings_name_steq(name, "unaligned", &next) && !next) {
+		val_len = len;
 		zassert_equal(val_len, sizeof(val8_un),
 			      "value length: %d, ought equal 1", val_len);
-		rc = settings_val_read_cb(value_ctx, &val8_un, sizeof(val8_un));
+		rc = read_cb(cb_arg, &val8_un, sizeof(val8_un));
 		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
 		return 0;
 	}
@@ -118,7 +128,8 @@ int c1_handle_commit(void)
 	return 0;
 }
 
-int c1_handle_export(int (*cb)(const char *name, void *value, size_t val_len))
+int c1_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len))
 {
 	if (test_export_block) {
 		return 0;
@@ -176,7 +187,7 @@ void config_wipe_fcb(struct flash_sector *fs, int cnt)
 	int rc;
 	int i;
 
-	rc = flash_area_open(DT_FLASH_AREA_STORAGE_ID, &fap);
+	rc = flash_area_open(FLASH_AREA_ID(storage), &fap);
 
 	for (i = 0; i < cnt; i++) {
 		rc = flash_area_erase(fap, fs[i].fs_off, fs[i].fs_size);
@@ -217,13 +228,18 @@ char *c2_var_find(char *name)
 	return val_string[idx];
 }
 
-int c2_handle_get(int argc, char **argv, char *val, int val_len_max)
+int c2_handle_get(const char *name, char *val, int val_len_max)
 {
 	int len;
 	char *valptr;
+	const char *next;
+	char argv[32];
 
-	if (argc == 1) {
-		valptr = c2_var_find(argv[0]);
+	len = settings_name_next(name, &next);
+	if (len && !next) {
+		strncpy(argv, name, len);
+		argv[len] = '\0';
+		valptr = c2_var_find(argv);
 		if (!valptr) {
 			return -ENOENT;
 		}
@@ -241,23 +257,29 @@ int c2_handle_get(int argc, char **argv, char *val, int val_len_max)
 	return -ENOENT;
 }
 
-int c2_handle_set(int argc, char **argv, void *value_ctx)
+int c2_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg)
 {
 	char *valptr;
+	const char *next;
+	char argv[32];
+
 	int rc;
 
-	if (argc == 1) {
-		valptr = c2_var_find(argv[0]);
+	len = settings_name_next(name, &next);
+	if (len && !next) {
+		strncpy(argv, name, len);
+		argv[len] = '\0';
+		valptr = c2_var_find(argv);
 		if (!valptr) {
 			return -ENOENT;
 		}
 
-			rc = settings_val_read_cb(value_ctx, valptr,
-						  sizeof(val_string[0]));
-			zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
-			if (rc == 0) {
-				(void)memset(valptr, 0, sizeof(val_string[0]));
-			}
+		rc = read_cb(cb_arg, valptr, sizeof(val_string[0]));
+		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
+		if (rc == 0) {
+			(void)memset(valptr, 0, sizeof(val_string[0]));
+		}
 
 		return 0;
 	}
@@ -265,7 +287,8 @@ int c2_handle_set(int argc, char **argv, void *value_ctx)
 	return -ENOENT;
 }
 
-int c2_handle_export(int (*cb)(const char *name, void *value, size_t val_len))
+int c2_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len))
 {
 	int i;
 	char name[32];
@@ -278,9 +301,11 @@ int c2_handle_export(int (*cb)(const char *name, void *value, size_t val_len))
 	return 0;
 }
 
-int c3_handle_get(int argc, char **argv, char *val, int val_len_max)
+int c3_handle_get(const char *name, char *val, int val_len_max)
 {
-	if (argc == 1 && !strcmp(argv[0], "v")) {
+	const char *next;
+
+	if (settings_name_steq(name, "v", &next) && !next) {
 		val_len_max = MIN(val_len_max, sizeof(val32));
 		memcpy(val, &val32, MIN(val_len_max, sizeof(val32)));
 		return val_len_max;
@@ -288,16 +313,18 @@ int c3_handle_get(int argc, char **argv, char *val, int val_len_max)
 	return -EINVAL;
 }
 
-int c3_handle_set(int argc, char **argv, void *value_ctx)
+int c3_handle_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg)
 {
 	int rc;
 	size_t val_len;
+	const char *next;
 
-	if (argc == 1 && !strcmp(argv[0], "v")) {
-		val_len = settings_val_get_len_cb(value_ctx);
+	if (settings_name_steq(name, "v", &next) && !next) {
+		val_len = len;
 		zassert_true(val_len == 4, "bad set-value size");
 
-		rc = settings_val_read_cb(value_ctx, &val32, sizeof(val32));
+		rc = read_cb(cb_arg, &val32, sizeof(val32));
 		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
 		return 0;
 	}
@@ -305,12 +332,27 @@ int c3_handle_set(int argc, char **argv, void *value_ctx)
 	return -ENOENT;
 }
 
-int c3_handle_export(int (*cb)(const char *name, void *value, size_t val_len))
+int c3_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len))
 {
 	(void)cb("3/v", &val32, sizeof(val32));
 
 
 	return 0;
+}
+
+void tests_settings_check_target(void)
+{
+	const struct flash_area *fap;
+	int rc;
+	uint8_t wbs;
+
+	rc = flash_area_open(FLASH_AREA_ID(storage), &fap);
+	zassert_true(rc == 0, "Can't open storage flash area");
+
+	wbs = flash_area_align(fap);
+	zassert_true(wbs <= 16,
+		"Flash driver is not compatible with the settings fcb-backend");
 }
 
 void test_settings_encode(void);
@@ -323,6 +365,7 @@ void test_config_commit(void);
 
 void test_config_empty_fcb(void);
 void test_config_save_1_fcb(void);
+void test_config_delete_fcb(void);
 void test_config_insert2(void);
 void test_config_save_2_fcb(void);
 void test_config_insert3(void);
@@ -337,11 +380,6 @@ void test_config_save_fcb_unaligned(void);
 void test_main(void)
 {
 	ztest_test_suite(test_config_fcb,
-#ifdef CONFIG_SETTINGS_USE_BASE64
-			 ztest_unit_test(test_settings_encode),
-			 ztest_unit_test(test_setting_raw_read),
-			 ztest_unit_test(test_setting_val_read),
-#endif
 			 /* Config tests */
 			 ztest_unit_test(config_empty_lookups),
 			 ztest_unit_test(test_config_insert),
@@ -350,9 +388,11 @@ void test_main(void)
 			 ztest_unit_test(test_config_getset_int64),
 			 ztest_unit_test(test_config_commit),
 			 /* FCB as backing storage*/
+			 ztest_unit_test(tests_settings_check_target),
 			 ztest_unit_test(test_config_save_fcb_unaligned),
 			 ztest_unit_test(test_config_empty_fcb),
 			 ztest_unit_test(test_config_save_1_fcb),
+			 ztest_unit_test(test_config_delete_fcb),
 			 ztest_unit_test(test_config_insert2),
 			 ztest_unit_test(test_config_save_2_fcb),
 			 ztest_unit_test(test_config_insert3),

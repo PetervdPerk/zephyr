@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 zephyr_library()
 zephyr_library_sources(
   bt.c
@@ -20,7 +22,16 @@ zephyr_library_sources_ifdef(
   rfcomm.c
   )
 zephyr_library_sources_ifdef(
-  CONFIG_BT_CTLR
-  ll.c
-  ticker.c
+  CONFIG_BT_ISO
+  iso.c
   )
+
+if(CONFIG_BT_CTLR AND CONFIG_BT_LL_SW_SPLIT)
+  zephyr_library_sources(
+    ll.c
+    ticker.c
+    )
+  zephyr_include_directories(
+    ${ZEPHYR_BASE}/subsys/bluetooth/controller/ll_sw/nordic
+    )
+endif()

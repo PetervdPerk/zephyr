@@ -39,12 +39,12 @@ static void tlifo_get(struct k_lifo *plifo)
 }
 
 /*entry of contexts*/
-static void tIsr_entry_put(void *p)
+static void tIsr_entry_put(const void *p)
 {
 	tlifo_put((struct k_lifo *)p);
 }
 
-static void tIsr_entry_get(void *p)
+static void tIsr_entry_get(const void *p)
 {
 	tlifo_get((struct k_lifo *)p);
 }
@@ -61,7 +61,7 @@ static void tlifo_thread_thread(struct k_lifo *plifo)
 	/**TESTPOINT: thread-thread data passing via lifo*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 		tThread_entry, plifo, NULL, NULL,
-		K_PRIO_PREEMPT(0), 0, 0);
+		K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 	tlifo_put(plifo);
 	k_sem_take(&end_sema, K_FOREVER);
 	k_thread_abort(tid);
@@ -71,7 +71,7 @@ static void tlifo_thread_isr(struct k_lifo *plifo)
 {
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: thread-isr data passing via lifo*/
-	irq_offload(tIsr_entry_put, plifo);
+	irq_offload(tIsr_entry_put, (const void *)plifo);
 	tlifo_get(plifo);
 }
 
@@ -80,7 +80,7 @@ static void tlifo_isr_thread(struct k_lifo *plifo)
 	k_sem_init(&end_sema, 0, 1);
 	/**TESTPOINT: isr-thread data passing via lifo*/
 	tlifo_put(plifo);
-	irq_offload(tIsr_entry_get, plifo);
+	irq_offload(tIsr_entry_get, (const void *)plifo);
 }
 
 /**

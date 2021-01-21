@@ -12,105 +12,64 @@
 #include <logging/log_core.h>
 #include <logging/log_msg.h>
 #include <logging/log_output.h>
+#include <logging/log_backend_std.h>
 #include <xtensa/simcall.h>
 
-#define CHAR_BUF_SIZE CONFIG_LOG_BACKEND_XTENSA_OUTPUT_BUFFER_SIZE
+#define CHAR_BUF_SIZE (IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? \
+		1 : CONFIG_LOG_BACKEND_XTENSA_OUTPUT_BUFFER_SIZE)
 
-static u8_t buf[CHAR_BUF_SIZE];
+static uint8_t xtensa_log_buf[CHAR_BUF_SIZE];
 
-static int char_out(u8_t *data, size_t length, void *ctx)
+static int char_out(uint8_t *data, size_t length, void *ctx)
 {
-	register int a1 __asm__ ("a2") = SYS_write;
-	register int b1 __asm__ ("a3") = 1;
-	register int c1 __asm__ ("a4") = (int) data;
-	register int d1 __asm__ ("a5") = length;
-	register int ret_val __asm__ ("a2");
-	register int ret_err __asm__ ("a3");
+	register int a2 __asm__ ("a2") = SYS_write;
+	register int a3 __asm__ ("a3") = 1;
+	register int a4 __asm__ ("a4") = (int) data;
+	register int a5 __asm__ ("a5") = length;
 
-	__asm__ __volatile__ (
-			"simcall\n"
-			"mov %0, a2\n"
-			"mov %1, a3\n"
-			: "=a" (ret_val), "=a" (ret_err), "+r"(a1), "+r"(b1)
-			: "r"(c1), "r"(d1)
-			: "memory");
+	__asm__ volatile("simcall"
+			 : "=a"(a2), "=a"(a3)
+			 : "a"(a2), "a"(a3), "a"(a4), "a"(a5));
+
 	return length;
 }
 
-LOG_OUTPUT_DEFINE(log_output, char_out, buf, sizeof(buf));
+LOG_OUTPUT_DEFINE(log_output_xsim, char_out,
+		  xtensa_log_buf, sizeof(xtensa_log_buf));
 
 static void put(const struct log_backend *const backend,
 		struct log_msg *msg)
 {
-	log_msg_get(msg);
-
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	log_output_msg_process(&log_output, msg, flags);
-
-	log_msg_put(msg);
+	log_backend_std_put(&log_output_xsim, 0, msg);
 
 }
 
 static void panic(struct log_backend const *const backend)
 {
-	log_output_flush(&log_output);
+	log_backend_std_panic(&log_output_xsim);
 }
 
-static void dropped(const struct log_backend *const backend, u32_t cnt)
+static void dropped(const struct log_backend *const backend, uint32_t cnt)
 {
 	ARG_UNUSED(backend);
 
-	log_output_dropped_process(&log_output, cnt);
+	log_backend_std_dropped(&log_output_xsim, cnt);
 }
 
 static void sync_string(const struct log_backend *const backend,
-		     struct log_msg_ids src_level, u32_t timestamp,
+		     struct log_msg_ids src_level, uint32_t timestamp,
 		     const char *fmt, va_list ap)
 {
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-	u32_t key;
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	key = irq_lock();
-	log_output_string(&log_output, src_level, timestamp, fmt, ap, flags);
-	irq_unlock(key);
+	log_backend_std_sync_string(&log_output_xsim, 0, src_level,
+				    timestamp, fmt, ap);
 }
 
 static void sync_hexdump(const struct log_backend *const backend,
-			 struct log_msg_ids src_level, u32_t timestamp,
-			 const char *metadata, const u8_t *data, u32_t length)
+			 struct log_msg_ids src_level, uint32_t timestamp,
+			 const char *metadata, const uint8_t *data, uint32_t length)
 {
-	u32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_TIMESTAMP;
-	u32_t key;
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_SHOW_COLOR)) {
-		flags |= LOG_OUTPUT_FLAG_COLORS;
-	}
-
-	if (IS_ENABLED(CONFIG_LOG_BACKEND_FORMAT_TIMESTAMP)) {
-		flags |= LOG_OUTPUT_FLAG_FORMAT_TIMESTAMP;
-	}
-
-	key = irq_lock();
-	log_output_hexdump(&log_output, src_level, timestamp,
-			metadata, data, length, flags);
-	irq_unlock(key);
+	log_backend_std_sync_hexdump(&log_output_xsim, 0, src_level,
+				     timestamp, metadata, data, length);
 }
 
 const struct log_backend_api log_backend_xtensa_sim_api = {
@@ -123,6 +82,4 @@ const struct log_backend_api log_backend_xtensa_sim_api = {
 	.dropped = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? NULL : dropped,
 };
 
-LOG_BACKEND_DEFINE(log_backend_xtensa_sim,
-		   log_backend_xtensa_sim_api,
-		   true);
+LOG_BACKEND_DEFINE(log_backend_xtensa_sim, log_backend_xtensa_sim_api, true);

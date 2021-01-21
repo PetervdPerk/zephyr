@@ -7,12 +7,12 @@
 
 #include "fcb_test.h"
 
-void fcb_test_multi_scratch(void)
+void test_fcb_multi_scratch(void)
 {
 	struct fcb *fcb;
 	int rc;
 	struct fcb_entry loc;
-	u8_t test_data[128];
+	uint8_t test_data[128] = {0};
 	int elem_cnts[4];
 	int idx;
 	int cnts[4];
@@ -21,7 +21,7 @@ void fcb_test_multi_scratch(void)
 	};
 
 	fcb = &test_fcb;
-	fcb->f_scratch_cnt = 1;
+	fcb->f_scratch_cnt = 1U;
 
 	/*
 	 * Now fill up everything. We should be able to get 3 of the sectors
@@ -30,7 +30,7 @@ void fcb_test_multi_scratch(void)
 	(void)memset(elem_cnts, 0, sizeof(elem_cnts));
 	while (1) {
 		rc = fcb_append(fcb, sizeof(test_data), &loc);
-		if (rc == FCB_ERR_NOSPACE) {
+		if (rc == -ENOSPC) {
 			break;
 		}
 		idx = loc.fe_sector - &test_fcb_sector[0];
@@ -58,7 +58,7 @@ void fcb_test_multi_scratch(void)
 
 	while (1) {
 		rc = fcb_append(fcb, sizeof(test_data), &loc);
-		if (rc == FCB_ERR_NOSPACE) {
+		if (rc == -ENOSPC) {
 			break;
 		}
 		idx = loc.fe_sector - &test_fcb_sector[0];

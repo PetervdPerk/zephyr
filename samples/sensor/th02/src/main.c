@@ -6,9 +6,9 @@
 
 #include <zephyr.h>
 #include <device.h>
-#include <sensor.h>
-#include <misc/printk.h>
-#include <misc/util.h>
+#include <drivers/sensor.h>
+#include <sys/printk.h>
+#include <sys/util.h>
 
 #ifdef CONFIG_GROVE_LCD_RGB
 #include <display/grove_lcd.h>
@@ -29,7 +29,7 @@ static struct channel_info info[] = {
 
 void main(void)
 {
-	struct device *dev[ARRAY_SIZE(info)];
+	const struct device *dev[ARRAY_SIZE(info)];
 	struct sensor_value val[ARRAY_SIZE(info)];
 	unsigned int i;
 	int rc;
@@ -44,7 +44,7 @@ void main(void)
 	}
 
 #ifdef CONFIG_GROVE_LCD_RGB
-	struct device *glcd;
+	const struct device *glcd;
 
 	glcd = device_get_binding(GROVE_LCD_NAME);
 	if (glcd == NULL) {
@@ -101,6 +101,6 @@ void main(void)
 
 #endif
 
-		k_sleep(2000);
+		k_sleep(K_MSEC(2000));
 	}
 }

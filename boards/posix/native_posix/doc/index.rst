@@ -1,4 +1,3 @@
-
 .. _native_posix:
 
 Native POSIX execution (native_posix)
@@ -22,6 +21,8 @@ target hardware in the early phases of development.
 This board provides a few peripherals such as an Ethernet driver and UART.
 See `Peripherals`_ for more information.
 
+.. _native_posix_deps:
+
 Host system dependencies
 ========================
 
@@ -35,8 +36,13 @@ but it has only been tested on Linux.
 
 .. note::
 
-   This port will **not** work in Windows Subsystem for Linux (WSL) because WSL
-   does not support native 32-bit binaries.
+   The 32 bit version of this port does not directly work in Windows Subsystem
+   for Linux (WSL) because WSL does not support native 32-bit binaries.
+   You may want to consider WSL2, or you can also just use the native_posix_64
+   target: Check `32 and 64bit versions`_.
+   Otherwise `with some tinkering
+   <https://github.com/microsoft/WSL/issues/2468#issuecomment-374904520>`_ it
+   should be possible to make it work.
 
 .. _native_important_limitations:
 
@@ -158,7 +164,7 @@ Run the zephyr.exe executable as you would any other Linux console application.
 
 .. code-block:: console
 
-   $ zephyr/zephyr.exe
+   $ ./build/zephyr/zephyr.exe
    # Press Ctrl+C to exit
 
 This executable accepts several command line options depending on the
@@ -166,7 +172,7 @@ compilation configuration.
 You can run it with the ``--help`` command line switch to get a list of
 available options::
 
-   $ zephyr/zephyr.exe --help
+   $ ./build/zephyr/zephyr.exe --help
 
 Note that the Zephyr kernel does not actually exit once the application is
 finished. It simply goes into the idle loop forever.
@@ -200,7 +206,7 @@ Address Sanitizer (ASan)
 
 You can also build Zephyr with `Address Sanitizer`_. To do this, set
 :option:`CONFIG_ASAN`, for example, in the application project file, or in the
-cmake command line invocation.
+``west build`` or ``cmake`` command line invocation.
 
 Note that you will need the ASan library installed in your system.
 In Debian/Ubuntu this is ``libasan1``.
@@ -213,6 +219,28 @@ Coverage reports
 
 See
 :ref:`coverage reports using the POSIX architecture <coverage_posix>`.
+
+
+32 and 64bit versions
+*********************
+
+native_posix comes with two targets: A 32 bit and 64 bit version.
+The 32 bit version, ``native_posix``, is the default target, which will compile
+your code for the ILP32 ABI (i386 in a x86 or x86_64 system) where pointers
+and longs are 32 bits.
+This mimics the ABI of most embedded systems Zephyr targets,
+and is therefore normally best to test and debug your code, as some bugs are
+dependent on the size of pointers and longs.
+This target requires either a 64 bit system with multilib support installed or
+one with a 32bit userspace.
+
+The 64 bit version, ``native_posix_64``, compiles your code targeting the
+LP64 ABI (x86-64 in x86 systems), where pointers and longs are 64 bits.
+You can use this target if you cannot compile or run 32 bit binaries.
+
+If you are using another 32 bit POSIX arch target you may also override its ABI
+target and pointer bit width by setting :option:`CONFIG_64BIT`.
+
 
 Rationale for this port
 ***********************
@@ -515,6 +543,11 @@ The following peripherals are currently provided with this board:
   must be powered down and support Bluetooth Low Energy (i.e. support the
   Bluetooth specification version 4.0 or greater).
 
+**USB controller**:
+  It's possible to use the Virtual USB controller working over USB/IP
+  protocol. More information can be found in
+  :ref:`Testing USB over USP/IP in native_posix <testing_USB_native_posix>`.
+
 **Display driver**:
   A display driver is provided that creates a window on the host machine to
   render display content.
@@ -533,16 +566,37 @@ The following peripherals are currently provided with this board:
 .. _SDL2:
    https://www.libsdl.org/download-2.0.php
 
-UART
-*****
+**Flash driver**:
+  A flash driver is provided that accesses all flash data through a binary file
+  on the host file system. The behavior of the flash device can be configured
+  through the native POSIX board devicetree or Kconfig settings under
+  :option:`CONFIG_FLASH_SIMULATOR`.
 
-This driver can be configured to either create and link the UART to a new
-pseudoterminal (i.e. ``/dev/pts<nbr>``), or to map the UART input and
+  By default the binary data is located in the file *flash.bin* in the current
+  working directory. The location of this file can be changed through the
+  command line parameter *--flash*. The flash data will be stored in raw format
+  and the file will be truncated to match the size specified in the devicetree
+  configuration. In case the file does not exists the driver will take care of
+  creating the file, else the existing file is used.
+
+  The flash content can be accessed from the host system, as explained in the
+  `Host based flash access`_ section.
+
+UART
+****
+
+This driver can be configured with :option:`CONFIG_UART_NATIVE_POSIX`
+to instantiate up to two UARTs. By default only one UART is enabled.
+With :option:`CONFIG_UART_NATIVE_POSIX_PORT_1_ENABLE`
+you can enable the second one.
+
+For the first UART, it can link it to a new
+pseudoterminal (i.e. ``/dev/pts<nbr>``), or map the UART input and
 output to the executable's ``stdin`` and ``stdout``.
 This is chosen by selecting either
 :option:`CONFIG_NATIVE_UART_0_ON_OWN_PTY` or
 :option:`CONFIG_NATIVE_UART_0_ON_STDINOUT`
-For interactive use with the :ref:`shell_label`, choose the first (OWN_PTY) option.
+For interactive use with the :ref:`shell_api`, choose the first (OWN_PTY) option.
 The second (STDINOUT) option can be used with the shell for automated
 testing, such as when piping other processes' output to control it.
 This is because the shell subsystem expects access to a raw terminal,
@@ -557,8 +611,8 @@ to it. This can be done, for example with the command::
 
 where ``/dev/<ttyn>`` should be replaced with the actual TTY device.
 
-You may also chose to automatically attach a terminal emulator to it by
-passing the command line option ``-attach_uart`` to the executable.
+You may also chose to automatically attach a terminal emulator to the first UART
+by passing the command line option ``-attach_uart`` to the executable.
 The command used for attaching to the new shell can be set with the command line
 option ``-attach_uart_cmd=<"cmd">``. Where the default command is given by
 :option:`CONFIG_NATIVE_UART_AUTOATTACH_DEFAULT_CMD`.
@@ -600,3 +654,37 @@ development by integrating more seamlessly with the host operating system:
   A backend/"bottom" for Zephyr's CTF tracing subsystem which writes the tracing
   data to a file in the host filesystem.
   More information can be found in :ref:`Common Tracing Format <ctf>`
+
+Host based flash access
+***********************
+
+If a flash device is present, the file system partitions on the flash
+device can be exposed through the host file system by enabling
+:option:`CONFIG_FUSE_FS_ACCESS`. This option enables a FUSE
+(File system in User space) layer that maps the Zephyr file system calls to
+the required UNIX file system calls, and provides access to the flash file
+system partitions with normal operating system commands such as ``cd``,
+``ls`` and ``mkdir``.
+
+By default the partitions are exposed through the directory *flash* in the
+current working directory. This directory can be changed via the command line
+option *--flash-mount*. As this directory operates as a mount point for FUSE
+you have to ensure that it exists before starting the native POSIX board.
+
+On exit, the native POSIX board application will take care of unmounting the
+directory. In the unfortunate case that the native POSIX board application
+crashes, you can cleanup the stale mount point by using the program
+``fusermount``::
+
+    $ fusermount -u flash
+
+Note that this feature requires a 32-bit version of the FUSE library, with a
+minimal version of 2.6, on the host system and ``pkg-config`` settings to
+correctly pickup the FUSE install path and compiler flags.
+
+On a Ubuntu 18.04 host system, for example, install the ``pkg-config`` and
+``libfuse-dev:i386`` packages, and configure the pkg-config search path with
+these commands::
+
+    $ sudo apt-get install pkg-config libfuse-dev:i386
+    $ export PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig

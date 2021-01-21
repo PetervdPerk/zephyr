@@ -48,6 +48,9 @@ echo-server directory:
   This overlay config enables support for two QEMU's when simulating
   IEEE 802.15.4 network that are connected together.
 
+- :file:`overlay-ppp.conf`
+  This overlay config enables support for PPP (Point-to-Point Protocol).
+
 - :file:`overlay-tls.conf`
   This overlay config enables support for TLS.
 
@@ -60,15 +63,31 @@ Build echo-server sample application like this:
    :goals: build
    :compact:
 
-Example building for the nRF52840_pca10056 with OpenThread support:
+Example building for the nrf52840dk_nrf52840 with OpenThread support:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/sockets/echo_server
    :host-os: unix
-   :board: nrf52840_pca10056
+   :board: nrf52840dk_nrf52840
    :conf: "prj.conf overlay-ot.conf"
    :goals: run
    :compact:
+
+Example building for the atsamr21_xpro with RF2XX driver support:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/net/sockets/echo_server
+   :host-os: unix
+   :board: [atsamr21_xpro | sam4e_xpro | sam_v71_xult]
+   :gen-args: -DOVERLAY_CONFIG=overlay-802154.conf
+   :goals: build flash
+   :compact:
+
+In a terminal window you can check if communication is happen:
+
+.. code-block:: console
+
+    $ minicom -D /dev/ttyACM0
 
 Enabling TLS support
 ====================
@@ -84,7 +103,7 @@ Enable TLS support in the sample by building the project with the
    :compact:
 
 An alternative way is to specify ``-DOVERLAY_CONFIG=overlay-tls.conf`` when
-running cmake.
+running ``west build`` or ``cmake``.
 
 The certificate used by the sample can be found in the sample's ``src``
 directory. The default certificates used by Socket Echo Server and

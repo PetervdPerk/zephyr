@@ -11,19 +11,9 @@
 #ifndef _NORDICSEMI_NRF91_SOC_H_
 #define _NORDICSEMI_NRF91_SOC_H_
 
-#ifndef _ASMLANGUAGE
+#include "../soc_nrf_common.h"
 
-#include <nrf.h>
-
-/* Add include for DTS generated information */
-#include <generated_dts_board.h>
-
-/* Add include for peripheral base address mappings */
-#include <nrfx_config_nrf9160.h>
-
-#endif /* !_ASMLANGUAGE */
-
-#define FLASH_PAGE_ERASE_MAX_TIME_US 	89700UL
+#define FLASH_PAGE_ERASE_MAX_TIME_US	89700UL
 #define FLASH_PAGE_MAX_CNT		256UL
 
 #endif /* _NORDICSEMI_NRF91_SOC_H_ */

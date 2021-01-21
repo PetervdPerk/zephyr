@@ -11,8 +11,8 @@
 
 #include <zephyr.h>
 #include <errno.h>
-#include <atomic.h>
-#include <misc/util.h>
+#include <sys/atomic.h>
+#include <sys/util.h>
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/conn.h>
@@ -68,7 +68,7 @@ static int bt_smp_recv(struct bt_l2cap_chan *chan, struct net_buf *buf)
 static int bt_smp_accept(struct bt_conn *conn, struct bt_l2cap_chan **chan)
 {
 	int i;
-	static struct bt_l2cap_chan_ops ops = {
+	static const struct bt_l2cap_chan_ops ops = {
 		.recv = bt_smp_recv,
 	};
 
@@ -93,14 +93,9 @@ static int bt_smp_accept(struct bt_conn *conn, struct bt_l2cap_chan **chan)
 	return -ENOMEM;
 }
 
+BT_L2CAP_CHANNEL_DEFINE(smp_fixed_chan, BT_L2CAP_CID_SMP, bt_smp_accept, NULL);
+
 int bt_smp_init(void)
 {
-	static struct bt_l2cap_fixed_chan chan = {
-		.cid	= BT_L2CAP_CID_SMP,
-		.accept	= bt_smp_accept,
-	};
-
-	bt_l2cap_le_fixed_chan_register(&chan);
-
 	return 0;
 }

@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <stdlib.h>
 
-#ifndef __ZEPHYR__
+#if !defined(__ZEPHYR__) || defined(CONFIG_POSIX_API)
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -18,11 +18,17 @@
 #include <fcntl.h>
 #include <poll.h>
 
+#define USE_IPV6
+
 #else
 
 #include <fcntl.h>
 #include <net/socket.h>
 #include <kernel.h>
+
+#ifdef CONFIG_NET_IPV6
+#define USE_IPV6
+#endif
 
 #endif
 
@@ -33,7 +39,7 @@
 #define NUM_FDS 5
 #endif
 
-#define PORT 4242
+#define BIND_PORT 4242
 
 /* Number of simultaneous client connections will be NUM_FDS be minus 2 */
 struct pollfd pollfds[NUM_FDS];
@@ -98,24 +104,31 @@ void pollfds_del(int fd)
 	}
 }
 
-int main(void)
+void main(void)
 {
 	int res;
 	static int counter;
-	int serv4, serv6;
+	int num_servs = 0;
+#if !defined(USE_IPV6) || !(CONFIG_SOC_SERIES_CC32XX)
+	int serv4;
 	struct sockaddr_in bind_addr4 = {
 		.sin_family = AF_INET,
-		.sin_port = htons(PORT),
+		.sin_port = htons(BIND_PORT),
 		.sin_addr = {
 			.s_addr = htonl(INADDR_ANY),
 		},
 	};
+#endif
+#ifdef USE_IPV6
+	int serv6;
 	struct sockaddr_in6 bind_addr6 = {
 		.sin6_family = AF_INET6,
-		.sin6_port = htons(PORT),
+		.sin6_port = htons(BIND_PORT),
 		.sin6_addr = IN6ADDR_ANY_INIT,
 	};
+#endif
 
+#if !defined(USE_IPV6) || !(CONFIG_SOC_SERIES_CC32XX)
 	serv4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (serv4 < 0) {
 		printf("error: socket: %d\n", errno);
@@ -126,7 +139,14 @@ int main(void)
 	if (res == -1) {
 		printf("Cannot bind IPv4, errno: %d\n", errno);
 	}
+	num_servs++;
 
+	setblocking(serv4, false);
+	listen(serv4, 5);
+	pollfds_add(serv4);
+#endif
+
+#ifdef USE_IPV6
 	serv6 = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	if (serv6 < 0) {
 		printf("error: socket(AF_INET6): %d\n", errno);
@@ -147,16 +167,15 @@ int main(void)
 	if (res == -1) {
 		printf("Cannot bind IPv6, errno: %d\n", errno);
 	}
+	num_servs++;
 
-	setblocking(serv4, false);
 	setblocking(serv6, false);
-	listen(serv4, 5);
 	listen(serv6, 5);
-
-	pollfds_add(serv4);
 	pollfds_add(serv6);
+#endif
 
-	printf("Asynchronous TCP echo server waits for connections on port %d...\n", PORT);
+	printf("Asynchronous TCP echo server waits for connections on "
+	       "port %d...\n", BIND_PORT);
 
 	while (1) {
 		struct sockaddr_storage client_addr;
@@ -174,7 +193,7 @@ int main(void)
 				continue;
 			}
 			int fd = pollfds[i].fd;
-			if (i < 2) {
+			if (i < num_servs) {
 				/* If server socket */
 				int client = accept(fd, (struct sockaddr *)&client_addr,
 						    &client_addr_len);

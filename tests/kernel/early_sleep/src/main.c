@@ -33,7 +33,7 @@
 
 #define THREAD_STACK		(384 + CONFIG_TEST_EXTRA_STACKSIZE)
 
-#define TEST_TICKS_TO_SLEEP	50
+#define TEST_TICKS_TO_SLEEP	(CONFIG_SYS_CLOCK_TICKS_PER_SEC / 2)
 
 /* Helper thread data */
 static K_THREAD_STACK_DEFINE(helper_tstack, THREAD_STACK);
@@ -54,18 +54,18 @@ static void helper_thread(void *p1, void *p2, void *p3)
 
 static int ticks_to_sleep(int ticks)
 {
-	u32_t start_time;
-	u32_t stop_time;
+	uint32_t start_time;
+	uint32_t stop_time;
 
 	start_time = k_cycle_get_32();
-	k_sleep(__ticks_to_ms(ticks));
+	k_sleep(K_MSEC(k_ticks_to_ms_floor64(ticks)));
 	stop_time = k_cycle_get_32();
 
-	return (stop_time - start_time) / sys_clock_hw_cycles_per_tick();
+	return (stop_time - start_time) / k_ticks_to_cyc_floor32(1);
 }
 
 
-static int test_early_sleep_post_kernel(struct device *unused)
+static int test_early_sleep_post_kernel(const struct device *unused)
 {
 	ARG_UNUSED(unused);
 	actual_post_kernel_sleep_ticks = ticks_to_sleep(TEST_TICKS_TO_SLEEP);
@@ -75,7 +75,7 @@ static int test_early_sleep_post_kernel(struct device *unused)
 SYS_INIT(test_early_sleep_post_kernel,
 		POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
-static int test_early_sleep_app(struct device *unused)
+static int test_early_sleep_app(const struct device *unused)
 {
 	ARG_UNUSED(unused);
 	actual_app_sleep_ticks = ticks_to_sleep(TEST_TICKS_TO_SLEEP);
@@ -102,8 +102,9 @@ static void test_early_sleep(void)
 	 */
 	k_thread_priority_set(k_current_get(), 0);
 
-	TC_PRINT("msec per tick: %lld.%03lld, ticks to sleep: %d\n",
-			__ticks_to_ms(1000) / 1000, __ticks_to_ms(1000) % 1000,
+	TC_PRINT("msec per tick: %" PRId64 ".%03" PRId64 ", ticks to sleep: %d\n",
+			k_ticks_to_ms_floor64(1000) / 1000U,
+			k_ticks_to_ms_floor64(1000) % 1000,
 			TEST_TICKS_TO_SLEEP);
 
 	/* Create a lower priority thread */
@@ -111,7 +112,7 @@ static void test_early_sleep(void)
 				   helper_tstack, THREAD_STACK,
 				   helper_thread, NULL, NULL, NULL,
 				   k_thread_priority_get(k_current_get()) + 1,
-				   K_INHERIT_PERMS, 0);
+				   K_INHERIT_PERMS, K_NO_WAIT);
 
 	TC_PRINT("k_sleep() ticks at POST_KERNEL level: %d\n",
 					actual_post_kernel_sleep_ticks);
@@ -136,6 +137,6 @@ static void test_early_sleep(void)
 void test_main(void)
 {
 	ztest_test_suite(test_earlysleep,
-			ztest_unit_test(test_early_sleep));
+			ztest_1cpu_unit_test(test_early_sleep));
 	ztest_run_test_suite(test_earlysleep);
 }

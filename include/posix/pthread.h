@@ -17,15 +17,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum pthread_state {
+	/* The thread structure is unallocated and available for reuse. */
+	PTHREAD_TERMINATED = 0,
 	/* The thread is running and joinable. */
-	PTHREAD_JOINABLE = 0,
+	PTHREAD_JOINABLE,
 	/* The thread is running and detached. */
 	PTHREAD_DETACHED,
 	/* A joinable thread exited and its return code is available. */
-	PTHREAD_EXITED,
-	/* The thread structure is unallocated and available for reuse. */
-	PTHREAD_TERMINATED
+	PTHREAD_EXITED
 };
 
 struct posix_thread {
@@ -49,13 +53,13 @@ struct posix_thread {
 };
 
 /* Pthread detach/joinable */
-#define PTHREAD_CREATE_JOINABLE     0
-#define PTHREAD_CREATE_DETACHED     1
+#define PTHREAD_CREATE_JOINABLE     PTHREAD_JOINABLE
+#define PTHREAD_CREATE_DETACHED     PTHREAD_DETACHED
 
 /* Pthread cancellation */
 #define _PTHREAD_CANCEL_POS	0
-#define PTHREAD_CANCEL_ENABLE	(0 << _PTHREAD_CANCEL_POS)
-#define PTHREAD_CANCEL_DISABLE	(1 << _PTHREAD_CANCEL_POS)
+#define PTHREAD_CANCEL_ENABLE	(0U << _PTHREAD_CANCEL_POS)
+#define PTHREAD_CANCEL_DISABLE	BIT(_PTHREAD_CANCEL_POS)
 
 /* Passed to pthread_once */
 #define PTHREAD_ONCE_INIT 1
@@ -124,7 +128,7 @@ int pthread_cond_wait(pthread_cond_t *cv, pthread_mutex_t *mut);
  * See IEEE 1003.1
  */
 int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut,
-			   const struct timespec *to);
+			   const struct timespec *abstime);
 
 /**
  * @brief POSIX threading compatibility API
@@ -160,8 +164,7 @@ static inline int pthread_condattr_destroy(pthread_condattr_t *att)
  * @param name Symbol name of the mutex
  */
 #define PTHREAD_MUTEX_DEFINE(name) \
-	struct pthread_mutex name \
-		__in_section(_k_mutex, static, name) = \
+	struct pthread_mutex name = \
 	{ \
 		.lock_count = 0, \
 		.wait_q = Z_WAIT_Q_INIT(&name.wait_q),	\
@@ -225,7 +228,7 @@ int pthread_mutex_unlock(pthread_mutex_t *m);
  */
 
 int pthread_mutex_timedlock(pthread_mutex_t *m,
-			    const struct timespec *to);
+			    const struct timespec *abstime);
 
 /**
  * @brief POSIX threading compatibility API
@@ -518,5 +521,44 @@ int pthread_key_create(pthread_key_t *key,
 int pthread_key_delete(pthread_key_t key);
 int pthread_setspecific(pthread_key_t key, const void *value);
 void *pthread_getspecific(pthread_key_t key);
+
+/* Glibc / Oracle Extension Functions */
+
+/**
+ * @brief Set name of POSIX thread.
+ *
+ * Non-portable, extension function that conforms with most
+ * other definitions of this function.
+ *
+ * @param thread POSIX thread to set name
+ * @param name Name string
+ * @retval 0 Success
+ * @retval ESRCH Thread does not exist
+ * @retval EINVAL Name buffer is NULL
+ * @retval Negative value if kernel function error
+ *
+ */
+int pthread_setname_np(pthread_t thread, const char *name);
+
+/**
+ * @brief Get name of POSIX thread and store in name buffer
+ *  	  that is of size len.
+ *
+ * Non-portable, extension function that conforms with most
+ * other definitions of this function.
+ *
+ * @param thread POSIX thread to obtain name information
+ * @param name Destination buffer
+ * @param len Destination buffer size
+ * @retval 0 Success
+ * @retval ESRCH Thread does not exist
+ * @retval EINVAL Name buffer is NULL
+ * @retval Negative value if kernel function error
+ */
+int pthread_getname_np(pthread_t thread, char *name, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ZEPHYR_INCLUDE_POSIX_PTHREAD_H_ */

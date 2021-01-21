@@ -1,38 +1,45 @@
----
-title: Atmel SAM0 SERCOM UART driver
-version: 0.1
+description: Atmel SAM0 SERCOM UART driver
 
-description: >
-    This binding gives a base representation of the Atmel SAM0 SERCOM UART driver
+compatible: "atmel,sam0-uart"
 
-inherits:
-    !include uart.yaml
+include: uart-controller.yaml
 
 properties:
-    compatible:
-      constraint: "atmel,sam0-uart"
-
     reg:
-      type: array
-      description: mmio register space
-      generation: define
-      category: required
+      required: true
 
     interrupts:
-      type: array
-      category: required
-      description: required interrupts
-      generation: define
+      required: true
+
+    clocks:
+      required: true
+
+    clock-names:
+      required: true
 
     rxpo:
       type: int
-      category: required
+      required: true
       description: Receive Data Pinout
-      generation: define
 
     txpo:
       type: int
-      category: required
+      required: true
       description: Transmit Data Pinout
-      generation: define
-...
+
+    dmas:
+      description: |
+        Optional TX & RX dma specifiers.  Each specifier will have a phandle
+        reference to the dmac controller, the channel number, and peripheral
+        trigger source.
+
+        For example dmas for TX, RX on SERCOM3
+           dmas = <&dmac 0 0xb>, <&dmac 0 0xa>;
+
+    dma-names:
+      description: |
+        Required if the dmas property exists.  This should be "tx" and "rx"
+        to match the dmas property.
+
+        For example
+           dma-names = "tx", "rx";

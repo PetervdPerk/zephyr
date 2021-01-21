@@ -1,3 +1,5 @@
+.. _testing:
+
 Testing
 #######
 
@@ -5,4 +7,4 @@ Testing
    :maxdepth: 1
 
    ztest
-   sanitycheck
+   twister

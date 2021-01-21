@@ -1,10 +1,7 @@
-# Kconfig.ipv4 - IPv4 Options
+# IPv4 Options
 
-#
 # Copyright (c) 2016 Intel Corporation.
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 menuconfig NET_IPV4
 	bool "IPv4"
@@ -43,8 +40,15 @@ config NET_ICMPV4_ACCEPT_BROADCAST
 	  If set, then respond to ICMPv4 echo-request that is sent to
 	  broadcast address.
 
+config NET_IPV4_ACCEPT_ZERO_BROADCAST
+	bool "Accept 0.0.0.0 broadcast destination address"
+	help
+	  If set, then accept UDP packets destined to non-standard
+	  0.0.0.0 broadcast address as described in RFC 1122 ch. 3.3.6
+
 config NET_DHCPV4
 	bool "Enable DHCPv4 client"
+	depends on NET_UDP
 
 config NET_DHCPV4_INITIAL_DELAY_MAX
 	int "Maximum time out for initial discover request"
@@ -60,6 +64,13 @@ config NET_IPV4_AUTO
 	depends on NET_ARP
 	help
 	  Enables IPv4 auto IP address configuration (see RFC 3927)
+
+config NET_IPV4_HDR_OPTIONS
+	bool "Enable IPv4 Header options support"
+	help
+	  Enables IPv4 header options support. Current support for only
+	  ICMPv4 Echo request. Only RecordRoute and Timestamp are handled.
+
 
 module = NET_IPV4
 module-dep = NET_LOG

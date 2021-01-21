@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Phytec Messtechnik GmbH
+ * Copyright (c) 2017-2019 Phytec Messtechnik GmbH
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,10 +8,8 @@
 #define ZEPHYR_DRIVERS_SENSOR_AMG88XX_AMG88XX_H_
 
 #include <device.h>
-#include <gpio.h>
-#include <misc/util.h>
-
-#define AMG88XX_I2C_ADDRESS	CONFIG_AMG88XX_I2C_ADDR
+#include <drivers/gpio.h>
+#include <sys/util.h>
 
 #define AMG88XX_PCLT		0x00 /* Setting Power control register */
 #define AMG88XX_RST		0x01 /* Reset register */
@@ -68,12 +66,24 @@
 #define AMG88XX_WAIT_MODE_CHANGE_US	50000
 #define AMG88XX_WAIT_INITIAL_RESET_US	2000
 
+struct amg88xx_config {
+	char *i2c_name;
+#ifdef CONFIG_AMG88XX_TRIGGER
+	char *gpio_name;
+	uint8_t gpio_pin;
+	gpio_dt_flags_t gpio_flags;
+#endif
+	uint8_t i2c_address;
+};
+
 struct amg88xx_data {
-	struct device *i2c;
-	s16_t sample[64];
+	const struct device *i2c;
+	int16_t sample[64];
 
 #ifdef CONFIG_AMG88XX_TRIGGER
-	struct device *gpio;
+	const struct device *dev;
+	const struct device *gpio;
+	uint8_t gpio_pin;
 	struct gpio_callback gpio_cb;
 
 	sensor_trigger_handler_t drdy_handler;
@@ -83,57 +93,27 @@ struct amg88xx_data {
 	struct sensor_trigger th_trigger;
 
 #if defined(CONFIG_AMG88XX_TRIGGER_OWN_THREAD)
-	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_AMG88XX_THREAD_STACK_SIZE);
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_AMG88XX_THREAD_STACK_SIZE);
 	struct k_sem gpio_sem;
 	struct k_thread thread;
 #elif defined(CONFIG_AMG88XX_TRIGGER_GLOBAL_THREAD)
 	struct k_work work;
-	struct device *dev;
 #endif
 
 #endif /* CONFIG_AMG88XX_TRIGGER */
 };
 
-static inline int amg88xx_reg_read(struct amg88xx_data *drv_data,
-				   u8_t reg, u8_t *val)
-{
-	return i2c_reg_read_byte(drv_data->i2c, CONFIG_AMG88XX_I2C_ADDR,
-				 reg, val);
-}
-
-static inline int amg88xx_reg_write(struct amg88xx_data *drv_data,
-				    u8_t reg, u8_t val)
-{
-	return i2c_reg_write_byte(drv_data->i2c, CONFIG_AMG88XX_I2C_ADDR,
-				  reg, val);
-}
-
-static inline int amg88xx_reg_update(struct amg88xx_data *drv_data, u8_t reg,
-				     u8_t mask, u8_t val)
-{
-	return i2c_reg_update_byte(drv_data->i2c, CONFIG_AMG88XX_I2C_ADDR,
-				   reg, mask, val);
-}
-
-
 #ifdef CONFIG_AMG88XX_TRIGGER
-int amg88xx_reg_read(struct amg88xx_data *drv_data, u8_t reg, u8_t *val);
-
-int amg88xx_reg_write(struct amg88xx_data *drv_data, u8_t reg, u8_t val);
-
-int amg88xx_reg_update(struct amg88xx_data *drv_data, u8_t reg,
-		       u8_t mask, u8_t val);
-
-int amg88xx_attr_set(struct device *dev,
+int amg88xx_attr_set(const struct device *dev,
 		     enum sensor_channel chan,
 		     enum sensor_attribute attr,
 		     const struct sensor_value *val);
 
-int amg88xx_trigger_set(struct device *dev,
+int amg88xx_trigger_set(const struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler);
 
-int amg88xx_init_interrupt(struct device *dev);
+int amg88xx_init_interrupt(const struct device *dev);
 #endif /* CONFIG_AMG88XX_TRIGGER */
 
 #endif

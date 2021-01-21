@@ -94,6 +94,10 @@ The frdm_k64f board configuration supports the following hardware features:
 | SENSOR    | off-chip   | fxos8700 polling;                   |
 |           |            | fxos8700 trigger                    |
 +-----------+------------+-------------------------------------+
+| CAN       | on-chip    | can                                 |
++-----------+------------+-------------------------------------+
+| RTC       | on-chip    | rtc                                 |
++-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
 
@@ -202,63 +206,123 @@ Only USB device function is supported in Zephyr at the moment.
 Programming and Debugging
 *************************
 
-The FRDM-K64F includes the :ref:`nxp_opensda` serial and debug adapter built
-into the board to provide debugging, flash programming, and serial
-communication over USB.
+Build and flash applications as usual (see :ref:`build_an_application` and
+:ref:`application_run` for more details).
 
-To use the pyOCD tools with OpenSDA, follow the instructions in the
-:ref:`nxp_opensda_pyocd` page using the `DAPLink FRDM-K64F Firmware`_. The
-pyOCD tools are the default for this board, therefore it is not necessary to
-set ``OPENSDA_FW=daplink`` explicitly when using the default flash and debug
-mechanisms.
+Configuring a Debug Probe
+=========================
 
-With these mechanisms, applications for the ``frdm_k64f`` board
-configuration can be built and flashed in the usual way (see
-:ref:`build_an_application` and :ref:`application_run` for more
-details).
+A debug probe is used for both flashing and debugging the board. This board is
+configured by default to use the :ref:`opensda-daplink-onboard-debug-probe`.
 
-To use the Segger J-Link tools with OpenSDA, follow the instructions in the
-:ref:`nxp_opensda_jlink` page using the `Segger J-Link OpenSDA V2.1 Firmware`_.
-The Segger J-Link tools are not the default for this board, therefore it is
-necessary to set ``OPENSDA_FW=jlink`` explicitly in the environment before
-programming and debugging.
+Early versions of this board have an outdated version of the OpenSDA bootloader
+and require an update. Please see the `DAPLink Bootloader Update`_ page for
+instructions to update from the CMSIS-DAP bootloader to the DAPLink bootloader.
 
-Flashing
-========
+Option 1: :ref:`opensda-daplink-onboard-debug-probe` (Recommended)
+------------------------------------------------------------------
 
-This example uses the :ref:`hello_world` sample with the
-:ref:`nxp_opensda_pyocd` tools.
+Install the :ref:`pyocd-debug-host-tools` and make sure they are in your search
+path.
+
+Follow the instructions in :ref:`opensda-daplink-onboard-debug-probe` to program
+the `OpenSDA DAPLink FRDM-K64F Firmware`_.
+
+Option 2: :ref:`opensda-jlink-onboard-debug-probe`
+--------------------------------------------------
+
+Install the :ref:`jlink-debug-host-tools` and make sure they are in your search
+path.
+
+Follow the instructions in :ref:`opensda-jlink-onboard-debug-probe` to program
+the `OpenSDA J-Link Generic Firmware for V3.2 Bootloader`_. Note that Segger
+does provide an OpenSDA J-Link Board-Specific Firmware for this board, however
+it is not compatible with the DAPLink bootloader.
+
+Add the arguments ``-DBOARD_FLASH_RUNNER=jlink`` and
+``-DBOARD_DEBUG_RUNNER=jlink`` when you invoke ``west build`` to override the
+default runner from pyOCD to J-Link:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :board: frdm_k64f
-   :goals: flash
+   :gen-args: -DBOARD_FLASH_RUNNER=jlink -DBOARD_DEBUG_RUNNER=jlink
+   :goals: build
 
-Open a serial terminal (minicom, putty, etc.) with the following settings:
+Configuring a Console
+=====================
+
+Regardless of your choice in debug probe, we will use the OpenSDA
+microcontroller as a usb-to-serial adapter for the serial console.
+
+Connect a USB cable from your PC to J26.
+
+Use the following settings with your serial terminal of choice (minicom, putty,
+etc.):
 
 - Speed: 115200
 - Data: 8 bits
 - Parity: None
 - Stop bits: 1
 
-Reset the board and you should be able to see on the corresponding Serial Port
-the following message:
+Flashing
+========
 
-.. code-block:: console
-
-   Hello World! arm
-
-Debugging
-=========
-
-You can debug an application in the usual way.  Here is an example for the
-:ref:`hello_world` application.
+Here is an example for the :ref:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :board: frdm_k64f
-   :maybe-skip-config:
+   :goals: flash
+
+Open a serial terminal, reset the board (press the SW1 button), and you should
+see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! frdm_k64f
+
+Debugging
+=========
+
+Here is an example for the :ref:`hello_world` application.
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/hello_world
+   :board: frdm_k64f
    :goals: debug
+
+Open a serial terminal, step through the application in your debugger, and you
+should see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! frdm_k64f
+
+Troubleshooting
+===============
+
+If pyocd raises an uncaught ``DAPAccessIntf.TransferFaultError()`` exception
+when you try to flash or debug, it's possible that the K64F flash may have been
+locked by a corrupt application. You can unlock it with the following sequence
+of pyocd commands:
+
+.. code-block:: console
+
+   $ pyocd cmd
+   0001915:WARNING:target_kinetis:Forcing halt on connect in order to gain control of device
+   Connected to K64F [Halted]: 0240000026334e450028400d5e0e000e4eb1000097969900
+   >>> unlock
+   0016178:WARNING:target_kinetis:K64F secure state: unlocked successfully
+   >>> reinit
+   0034584:WARNING:target_kinetis:Forcing halt on connect in order to gain control of device
+   >>> load build/zephyr/zephyr.bin
+   [====================] 100%
+   >>> reset
+   Resetting target
+   >>> quit
 
 .. _FRDM-K64F Website:
    https://www.nxp.com/support/developer-resources/evaluation-and-development-boards/freedom-development-boards/mcu-boards/freedom-development-platform-for-kinetis-k64-k63-and-k24-mcus:FRDM-K64F
@@ -278,8 +342,11 @@ You can debug an application in the usual way.  Here is an example for the
 .. _K64F Reference Manual:
    https://www.nxp.com/docs/en/reference-manual/K64P144M120SF5RM.pdf
 
-.. _DAPLink FRDM-K64F Firmware:
-   http://www.nxp.com/assets/downloads/data/en/ide-debug-compile-build-tools/OpenSDAv2.2_DAPLink_frdmk64f_rev0242.zip
+.. _DAPLink Bootloader Update:
+   https://os.mbed.com/blog/entry/DAPLink-bootloader-update/
 
-.. _Segger J-Link OpenSDA V2.1 Firmware:
-   https://www.segger.com/downloads/jlink/OpenSDA_V2_1.bin
+.. _OpenSDA DAPLink FRDM-K64F Firmware:
+   https://www.nxp.com/assets/downloads/data/en/snippets-boot-code-headers-monitors/k20dx_frdmk64f_if_crc_legacy_0x5000.bin
+
+.. _OpenSDA J-Link Generic Firmware for V3.2 Bootloader:
+   https://www.segger.com/downloads/jlink/OpenSDA_V3_2

@@ -12,17 +12,17 @@
 LOG_MODULE_REGISTER(main);
 
 #include <zephyr.h>
-#include <led_strip.h>
+#include <drivers/led_strip.h>
 #include <device.h>
-#include <spi.h>
-#include <misc/util.h>
+#include <drivers/spi.h>
+#include <sys/util.h>
 
 /*
  * Number of RGB LEDs in the LED strip, adjust as needed.
  */
 #define STRIP_NUM_LEDS 32
 
-#define STRIP_DEV_NAME DT_COLORWAY_LPD8806_0_LABEL
+#define STRIP_DEV_NAME DT_LABEL(DT_INST(0, colorway_lpd8806))
 #define DELAY_TIME K_MSEC(40)
 
 static const struct led_rgb colors[] = {
@@ -52,7 +52,7 @@ const struct led_rgb *color_at(size_t time, size_t i)
 
 void main(void)
 {
-	struct device *strip;
+	const struct device *strip;
 	size_t i, time;
 
 	strip = device_get_binding(STRIP_DEV_NAME);

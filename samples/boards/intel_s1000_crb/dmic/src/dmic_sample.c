@@ -19,10 +19,6 @@ LOG_MODULE_REGISTER(dmic_sample);
 #define MIC_FRAME_SAMPLES	(SAMPLES_PER_FRAME * NUM_MIC_CHANNELS)
 #define MIC_FRAME_BYTES		(MIC_FRAME_SAMPLES * AUDIO_SAMPLE_WIDTH / 8)
 
-#define LP_SRAM_BASE		0xBE800000
-#define LP_SRAM_BASE_UNCACHED	0x9E800000
-#define LP_SRAM_SIZE		(16 << 10)
-
 #define DMIC_DEV_NAME		"PDM"
 #define MIC_IN_BUF_COUNT	2
 
@@ -31,8 +27,9 @@ LOG_MODULE_REGISTER(dmic_sample);
 #define DELAY_BTW_ITERATIONS	K_MSEC(20)
 
 static struct k_mem_slab dmic_mem_slab;
-static char audio_buffers[MIC_FRAME_BYTES * MIC_IN_BUF_COUNT];
-static struct device *dmic_device;
+__attribute__((section(".dma_buffers")))
+static char audio_buffers[MIC_FRAME_BYTES][MIC_IN_BUF_COUNT];
+static const struct device *dmic_device;
 
 static void dmic_init(void)
 {
@@ -96,13 +93,13 @@ static void dmic_start(void)
 static void dmic_receive(void)
 {
 	int frame_counter = 0;
-	s32_t *mic_in_buf;
+	int32_t *mic_in_buf;
 	size_t size;
 	int ret;
 
 	while (frame_counter++ < FRAMES_PER_ITERATION) {
 		ret = dmic_read(dmic_device, 0, (void **)&mic_in_buf, &size,
-				K_FOREVER);
+				SYS_FOREVER_MS);
 		if (ret) {
 			LOG_ERR("dmic_read failed %d", ret);
 		} else {
@@ -145,4 +142,4 @@ static void dmic_sample_app(void *p1, void *p2, void *p3)
 }
 
 K_THREAD_DEFINE(dmic_sample, 1024, dmic_sample_app, NULL, NULL, NULL, 10, 0,
-		K_NO_WAIT);
+		0);

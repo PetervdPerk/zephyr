@@ -31,9 +31,9 @@
 #include <zephyr.h>
 #include <kernel.h>
 #include <cmsis_os2.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
-#include <misc/__assert.h>
+#include <sys/__assert.h>
 
 #include "phil_obj_abstract.h"
 
@@ -68,7 +68,7 @@ osSemaphoreId_t forks[NUM_PHIL];
 
 #define fork(x) (forks[x])
 
-#define STACK_SIZE 512
+#define STACK_SIZE CONFIG_CMSIS_V2_THREAD_MAX_STACK_SIZE
 static K_THREAD_STACK_ARRAY_DEFINE(stacks, NUM_PHIL, STACK_SIZE);
 static osThreadAttr_t thread_attr[] = {
 	{
@@ -126,7 +126,7 @@ static void set_phil_state_pos(int id)
 }
 
 #include <stdarg.h>
-static void print_phil_state(int id, const char *fmt, s32_t delay)
+static void print_phil_state(int id, const char *fmt, int32_t delay)
 {
 	int prio = osThreadGetPriority(osThreadGetId());
 
@@ -146,17 +146,17 @@ static void print_phil_state(int id, const char *fmt, s32_t delay)
 	printk("\n");
 }
 
-static s32_t get_random_delay(int id, int period_in_ms)
+static int32_t get_random_delay(int id, int period_in_ms)
 {
 	/*
 	 * The random delay is unit-less, and is based on the philosopher's ID
 	 * and the current uptime to create some pseudo-randomness. It produces
 	 * a value between 0 and 31.
 	 */
-	s32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
+	int32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
 
 	/* add 1 to not generate a delay of 0 */
-	s32_t ms = (delay + 1) * period_in_ms;
+	int32_t ms = (delay + 1) * period_in_ms;
 
 	return ms;
 }
@@ -171,7 +171,7 @@ void philosopher(void *id)
 	fork_t fork1;
 	fork_t fork2;
 
-	int my_id = (int)id;
+	int my_id = POINTER_TO_INT(id);
 
 	/* Djkstra's solution: always pick up the lowest numbered fork first */
 	if (is_last_philosopher(my_id)) {
@@ -183,7 +183,7 @@ void philosopher(void *id)
 	}
 
 	while (1) {
-		s32_t delay;
+		int32_t delay;
 
 		print_phil_state(my_id, "       STARVING       ", 0);
 		take(fork1);
@@ -226,7 +226,7 @@ static void start_threads(void)
 	for (int i = 0; i < NUM_PHIL; i++) {
 		int prio = new_prio(i);
 		thread_attr[i].priority = prio;
-		osThreadNew(philosopher, (void *)i, &thread_attr[i]);
+		osThreadNew(philosopher, INT_TO_POINTER(i), &thread_attr[i]);
 	}
 }
 
@@ -252,4 +252,11 @@ void main(void)
 	display_demo_description();
 	init_objects();
 	start_threads();
+
+#ifdef CONFIG_COVERAGE
+	/* Wait a few seconds before main() exit, giving the sample the
+	 * opportunity to dump some output before coverage data gets emitted
+	 */
+	k_sleep(K_MSEC(5000));
+#endif
 }

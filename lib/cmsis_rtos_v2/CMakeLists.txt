@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 
 add_library(CMSIS INTERFACE)
 
@@ -17,5 +19,9 @@ zephyr_library_sources_ifdef(
   thread_flags.c
 )
 
+zephyr_library_include_directories(
+  ${ZEPHYR_BASE}/kernel/include
+  ${ZEPHYR_BASE}/arch/${ARCH}/include
+)
+
 zephyr_library_link_libraries(CMSIS)
-target_link_libraries(CMSIS INTERFACE zephyr_interface)

@@ -25,16 +25,8 @@ Hardware
 
 The following Xtensa cores are officially supported:
 
-- hifi3_bd5
-- XRC_FUSION_AON_ALL_LM
-- D_108mini
-- D_212GP
-- D_233L
-- hifi_mini_4swIrq (call0 ABI, added 4 SW IRQ for tests and 1 timer level 1)
-- hifi2_std
-- XRC_D2PM_5swIrq (added 4 SW IRQ for tests and 1 timer level 1)
-- hifi4_bd7 (Big Endian)
-- hifi3_bd5_call0 (call0 ABI, added 3 SW IRQs for tests)
+- Intel S1000
+- sample_controller
 
 System Clock
 ============
@@ -140,7 +132,7 @@ The file "soc/xtensa/linker_more.ld" contains Zephyr-specific linker
 sections that should be added to the default linker script linker.ld (inside
 SECTIONS region). If you are not using a linker script, you must create one
 and add these sections. The memory segment and PHDR should be replaced by
-appropriate values. See :zephyr_file:`soc/xtensa/hifi3_bd5/linker.ld` for an example.
+appropriate values.
 
 The linker script should be named ``linker.ld`` and placed in the directory
 ``soc/xtensa/${XTENSA_CORE}``.
@@ -149,7 +141,7 @@ Configuring build
 =================
 
 .. zephyr-app-commands::
-   :zephyr-app: tests/kernel/test_build
+   :zephyr-app: samples/hello_world
    :goals: menuconfig
 
 Below is an example of usage for typical configuration:
@@ -188,4 +180,3 @@ References
 **********
 
 .. _Xtensa tools: https://ip.cadence.com/support/sdk-evaluation-request
-

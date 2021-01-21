@@ -7,16 +7,9 @@
 #ifndef __SPI_NOR_H__
 #define __SPI_NOR_H__
 
-#include <misc/util.h>
+#include <sys/util.h>
 
 #define SPI_NOR_MAX_ID_LEN	3
-
-struct spi_nor_config {
-	u8_t id[SPI_NOR_MAX_ID_LEN];
-	u32_t page_size;
-	u32_t sector_size;
-	u32_t n_sectors;
-};
 
 /* Status register bits */
 #define SPI_NOR_WIP_BIT         BIT(0)  /* Write in progress */
@@ -34,5 +27,17 @@ struct spi_nor_config {
 #define SPI_NOR_CMD_BE          0xD8    /* Block erase */
 #define SPI_NOR_CMD_CE          0xC7    /* Chip erase */
 #define SPI_NOR_CMD_RDID        0x9F    /* Read JEDEC ID */
+#define SPI_NOR_CMD_ULBPR       0x98    /* Global Block Protection Unlock */
+#define SPI_NOR_CMD_DPD         0xB9    /* Deep Power Down */
+#define SPI_NOR_CMD_RDPD        0xAB    /* Release from Deep Power Down */
+
+/* Page, sector, and block size are standard, not configurable. */
+#define SPI_NOR_PAGE_SIZE    0x0100U
+#define SPI_NOR_SECTOR_SIZE  0x1000U
+#define SPI_NOR_BLOCK_SIZE   0x10000U
+
+/* Test whether offset is aligned to a given number of bits. */
+#define SPI_NOR_IS_ALIGNED(_ofs, _bits) (((_ofs) & BIT_MASK(_bits)) == 0)
+#define SPI_NOR_IS_SECTOR_ALIGNED(_ofs) SPI_NOR_IS_ALIGNED(_ofs, 12)
 
 #endif /*__SPI_NOR_H__*/

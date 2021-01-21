@@ -65,7 +65,9 @@
 #include <tinycrypt/constants.h>
 #include <tinycrypt/sha256.h>
 #include <test_utils.h>
-#include <test_ecc_utils.h>
+#include "test_ecc_utils.h"
+#include <sys/util.h>
+#include <random/rand32.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,7 +111,7 @@ int sign_vectors(TCSha256State_t hash, char **d_vec, char **k_vec,
 		string2scalar(exp_r, NUM_ECC_WORDS, r_vec[i]);
 		string2scalar(exp_s, NUM_ECC_WORDS, s_vec[i]);
 
-		msglen = hex2bin(msg, BUF_SIZE, msg_vec[i], strlen(msg_vec[i]));
+		msglen = hex2bin(msg_vec[i], strlen(msg_vec[i]), msg, BUF_SIZE);
 
 		/**TESTPOINT: Check if msg imported*/
 		zassert_true(msglen, "failed to import message!");
@@ -366,7 +368,7 @@ int vrfy_vectors(TCSha256State_t hash, char **msg_vec, char **qx_vec, char **qy_
 		exp_rc = res_vec[i];
 
 		/* validate ECDSA: hash message, verify r+s */
-		msglen = hex2bin(msg, BUF_SIZE, msg_vec[i], strlen(msg_vec[i]));
+		msglen = hex2bin(msg_vec[i], strlen(msg_vec[i]), msg, BUF_SIZE);
 
 		/**TESTPOINT: Check if msg imported*/
 		zassert_true(msglen, "failed to import message!");
@@ -609,14 +611,14 @@ int montecarlo_signverify(int num_tests, bool verbose)
 	return TC_PASS;
 }
 
-int default_CSPRNG(u8_t *dest, unsigned int size)
+int default_CSPRNG(uint8_t *dest, unsigned int size)
 {
 	/* This is not a CSPRNG, but it's the only thing available in the
 	 * system at this point in time.  */
 
 	while (size) {
-		u32_t len = size >= sizeof(u32_t) ? sizeof(u32_t) : size;
-		u32_t rv = sys_rand32_get();
+		uint32_t len = size >= sizeof(uint32_t) ? sizeof(uint32_t) : size;
+		uint32_t rv = sys_rand32_get();
 
 		memcpy(dest, &rv, len);
 		dest += len;

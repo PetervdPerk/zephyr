@@ -15,8 +15,8 @@ LOG_MODULE_REGISTER(usb_bos);
 
 #include <usb/bos.h>
 
-extern const u8_t __usb_bos_desc_start[];
-extern const u8_t __usb_bos_desc_end[];
+extern const uint8_t __usb_bos_desc_start[];
+extern const uint8_t __usb_bos_desc_end[];
 
 USB_DEVICE_BOS_DESC_DEFINE_HDR struct usb_bos_descriptor hdr = {
 	.bLength = sizeof(struct usb_bos_descriptor),
@@ -49,16 +49,15 @@ void usb_bos_register_cap(struct usb_bos_platform_descriptor *desc)
 	/* Has effect only on first register */
 	hdr->wTotalLength = usb_bos_get_length();
 
-	hdr->bNumDeviceCaps += 1;
+	hdr->bNumDeviceCaps += 1U;
 }
 
 int usb_handle_bos(struct usb_setup_packet *setup,
-		   s32_t *len, u8_t **data)
+		   int32_t *len, uint8_t **data)
 {
-	LOG_DBG("wValue 0x%x", setup->wValue);
-
 	if (GET_DESC_TYPE(setup->wValue) == DESCRIPTOR_TYPE_BOS) {
-		*data = (u8_t *)usb_bos_get_header();
+		LOG_DBG("Read BOS descriptor");
+		*data = (uint8_t *)usb_bos_get_header();
 		*len = usb_bos_get_length();
 
 		return 0;

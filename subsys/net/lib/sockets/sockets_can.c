@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019 Intel Corporation
+ * Copyright (c) 2021 Nordic Semiconductor
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,22 +12,34 @@
 LOG_MODULE_REGISTER(net_sock_can, CONFIG_NET_SOCKETS_LOG_LEVEL);
 
 #include <kernel.h>
-#include <entropy.h>
-#include <misc/util.h>
+#include <drivers/entropy.h>
+#include <sys/util.h>
 #include <net/net_context.h>
 #include <net/net_pkt.h>
 #include <net/socket.h>
 #include <syscall_handler.h>
-#include <misc/fdtable.h>
+#include <sys/fdtable.h>
 #include <net/socket_can.h>
 
 #include "sockets_internal.h"
+
+#define MEM_ALLOC_TIMEOUT K_MSEC(50)
+
+struct can_recv {
+	struct net_if *iface;
+	struct net_context *ctx;
+	canid_t can_id;
+	canid_t can_mask;
+};
+
+static struct can_recv receivers[CONFIG_NET_SOCKETS_CAN_RECEIVERS];
 
 extern const struct socket_op_vtable sock_fd_op_vtable;
 
 static const struct socket_op_vtable can_sock_fd_op_vtable;
 
-static inline int _k_fifo_wait_non_empty(struct k_fifo *fifo, int32_t timeout)
+static inline int k_fifo_wait_non_empty(struct k_fifo *fifo,
+					k_timeout_t timeout)
 {
 	struct k_poll_event events[] = {
 		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
@@ -41,11 +54,6 @@ int zcan_socket(int family, int type, int proto)
 	struct net_context *ctx;
 	int fd;
 	int ret;
-
-	if (proto != CAN_RAW) {
-		errno = EOPNOTSUPP;
-		return -1;
-	}
 
 	fd = z_reserve_fd();
 	if (fd < 0) {
@@ -64,13 +72,6 @@ int zcan_socket(int family, int type, int proto)
 
 	k_fifo_init(&ctx->recv_q);
 
-#ifdef CONFIG_USERSPACE
-	/* Set net context object as initialized and grant access to the
-	 * calling thread (and only the calling thread)
-	 */
-	z_object_recycle(ctx);
-#endif
-
 	z_finalize_fd(fd, ctx,
 		      (const struct fd_op_vtable *)&can_sock_fd_op_vtable);
 
@@ -82,32 +83,88 @@ static void zcan_received_cb(struct net_context *ctx, struct net_pkt *pkt,
 			     union net_proto_header *proto_hdr,
 			     int status, void *user_data)
 {
-	NET_DBG("ctx %p pkt %p st %d ud %p", ctx, pkt, status, user_data);
+	/* The ctx parameter is not really relevant here. It refers to first
+	 * net_context that was used when registering CAN socket.
+	 * In practice there can be multiple sockets that are interested in
+	 * same CAN id packets. That is why we need to implement the dispatcher
+	 * which will give the packet to correct net_context(s).
+	 */
+	struct net_pkt *clone = NULL;
+	int i;
 
-	/* if pkt is NULL, EOF */
-	if (!pkt) {
-		struct net_pkt *last_pkt = k_fifo_peek_tail(&ctx->recv_q);
+	for (i = 0; i < ARRAY_SIZE(receivers); i++) {
+		struct zcan_frame *zframe =
+			(struct zcan_frame *)net_pkt_data(pkt);
+		struct can_frame frame;
 
-		if (!last_pkt) {
-			/* If there're no packets in the queue, recv() may
-			 * be blocked waiting on it to become non-empty,
-			 * so cancel that wait.
-			 */
-			sock_set_eof(ctx);
-			k_fifo_cancel_wait(&ctx->recv_q);
-			NET_DBG("Marked socket %p as peer-closed", ctx);
-		} else {
-			net_pkt_set_eof(last_pkt, true);
-			NET_DBG("Set EOF flag on pkt %p", ctx);
+		if (!receivers[i].ctx ||
+		    receivers[i].iface != net_pkt_iface(pkt)) {
+			continue;
 		}
 
-		return;
+		can_copy_zframe_to_frame(zframe, &frame);
+
+		if ((frame.can_id & receivers[i].can_mask) !=
+		    (receivers[i].can_id & receivers[i].can_mask)) {
+			continue;
+		}
+
+		/* If there are multiple receivers configured, we use the
+		 * original net_pkt as a template, and just clone it to all
+		 * recipients. This is done like this so that we avoid the
+		 * original net_pkt being freed while we are cloning it.
+		 */
+		if (pkt != NULL && ARRAY_SIZE(receivers) > 1) {
+			/* There are multiple receivers, we need to clone
+			 * the packet.
+			 */
+			clone = net_pkt_clone(pkt, MEM_ALLOC_TIMEOUT);
+			if (!clone) {
+				/* Sent the packet to at least one recipient
+				 * if there is no memory to clone the packet.
+				 */
+				clone = pkt;
+			}
+		} else {
+			clone = pkt;
+		}
+
+		ctx = receivers[i].ctx;
+
+		NET_DBG("[%d] ctx %p pkt %p st %d", i, ctx, clone, status);
+
+		/* if pkt is NULL, EOF */
+		if (!clone) {
+			struct net_pkt *last_pkt =
+				k_fifo_peek_tail(&ctx->recv_q);
+
+			if (!last_pkt) {
+				/* If there're no packets in the queue,
+				 * recv() may be blocked waiting on it to
+				 * become non-empty, so cancel that wait.
+				 */
+				sock_set_eof(ctx);
+				k_fifo_cancel_wait(&ctx->recv_q);
+
+				NET_DBG("Marked socket %p as peer-closed", ctx);
+			} else {
+				net_pkt_set_eof(last_pkt, true);
+
+				NET_DBG("Set EOF flag on pkt %p", ctx);
+			}
+
+			return;
+		} else {
+			/* Normal packet */
+			net_pkt_set_eof(clone, false);
+
+			k_fifo_put(&ctx->recv_q, clone);
+		}
 	}
 
-	/* Normal packet */
-	net_pkt_set_eof(pkt, false);
-
-	k_fifo_put(&ctx->recv_q, pkt);
+	if (clone && clone != pkt) {
+		net_pkt_unref(pkt);
+	}
 }
 
 static int zcan_bind_ctx(struct net_context *ctx, const struct sockaddr *addr,
@@ -152,7 +209,7 @@ ssize_t zcan_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 {
 	struct sockaddr_can can_addr;
 	struct zcan_frame zframe;
-	s32_t timeout = K_FOREVER;
+	k_timeout_t timeout = K_FOREVER;
 	int ret;
 
 	/* Setting destination address does not probably make sense here so
@@ -183,9 +240,9 @@ ssize_t zcan_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 
 	can_copy_frame_to_zframe((struct can_frame *)buf, &zframe);
 
-	ret = net_context_sendto_new(ctx, (void *)&zframe, sizeof(zframe),
-				     dest_addr, addrlen, NULL, timeout, NULL,
-				     ctx->user_data);
+	ret = net_context_sendto(ctx, (void *)&zframe, sizeof(zframe),
+				 dest_addr, addrlen, NULL, timeout,
+				 ctx->user_data);
 	if (ret < 0) {
 		errno = -ret;
 		return -1;
@@ -201,17 +258,19 @@ static ssize_t zcan_recvfrom_ctx(struct net_context *ctx, void *buf,
 {
 	struct zcan_frame zframe;
 	size_t recv_len = 0;
-	s32_t timeout = K_FOREVER;
+	k_timeout_t timeout = K_FOREVER;
 	struct net_pkt *pkt;
 
 	if ((flags & ZSOCK_MSG_DONTWAIT) || sock_is_nonblock(ctx)) {
 		timeout = K_NO_WAIT;
+	} else {
+		net_context_get_option(ctx, NET_OPT_RCVTIMEO, &timeout, NULL);
 	}
 
 	if (flags & ZSOCK_MSG_PEEK) {
 		int ret;
 
-		ret = _k_fifo_wait_non_empty(&ctx->recv_q, timeout);
+		ret = k_fifo_wait_non_empty(&ctx->recv_q, timeout);
 		/* EAGAIN when timeout expired, EINTR when cancelled */
 		if (ret && ret != -EAGAIN && ret != -EINTR) {
 			errno = -ret;
@@ -236,20 +295,18 @@ static ssize_t zcan_recvfrom_ctx(struct net_context *ctx, void *buf,
 		recv_len = max_len;
 	}
 
-	if (net_pkt_read_new(pkt, (void *)&zframe, sizeof(zframe))) {
+	if (net_pkt_read(pkt, (void *)&zframe, sizeof(zframe))) {
+		net_pkt_unref(pkt);
+
 		errno = EIO;
 		return -1;
-	}
-
-	if (!(flags & ZSOCK_MSG_PEEK)) {
-		net_pkt_unref(pkt);
-	} else {
-		net_pkt_cursor_init(pkt);
 	}
 
 	NET_ASSERT(recv_len == sizeof(struct can_frame));
 
 	can_copy_zframe_to_frame(&zframe, (struct can_frame *)buf);
+
+	net_pkt_unref(pkt);
 
 	return recv_len;
 }
@@ -282,6 +339,90 @@ static ssize_t can_sock_write_vmeth(void *obj, const void *buffer,
 				    size_t count)
 {
 	return zcan_sendto_ctx(obj, buffer, count, 0, NULL, 0);
+}
+
+static bool is_already_attached(struct can_filter *filter,
+				struct net_if *iface,
+				struct net_context *ctx)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(receivers); i++) {
+		if (receivers[i].ctx != ctx && receivers[i].iface == iface &&
+		    ((receivers[i].can_id & receivers[i].can_mask) ==
+		     (UNALIGNED_GET(&filter->can_id) &
+		      UNALIGNED_GET(&filter->can_mask)))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static int close_socket(struct net_context *ctx)
+{
+	const struct canbus_api *api;
+	struct net_if *iface;
+	const struct device *dev;
+
+	iface = net_context_get_iface(ctx);
+	dev = net_if_get_device(iface);
+	api = dev->api;
+
+	if (!api || !api->close) {
+		return -ENOTSUP;
+	}
+
+	api->close(dev, net_context_get_filter_id(ctx));
+
+	return 0;
+}
+
+static int can_close_socket(struct net_context *ctx)
+{
+	int i, ret;
+
+	for (i = 0; i < ARRAY_SIZE(receivers); i++) {
+		if (receivers[i].ctx == ctx) {
+			struct can_filter filter;
+
+			receivers[i].ctx = NULL;
+
+			filter.can_id = receivers[i].can_id;
+			filter.can_mask = receivers[i].can_mask;
+
+			if (!is_already_attached(&filter,
+						net_context_get_iface(ctx),
+						ctx)) {
+				/* We can detach now as there are no other
+				 * sockets that have same filter.
+				 */
+				ret = close_socket(ctx);
+				if (ret < 0) {
+					return ret;
+				}
+			}
+
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
+static int can_sock_close_vmeth(void *obj)
+{
+	int ret;
+
+	ret = can_close_socket(obj);
+	if (ret < 0) {
+		NET_DBG("Cannot detach net_context %p (%d)", obj, ret);
+
+		errno = -ret;
+		ret = -1;
+	}
+
+	return ret;
 }
 
 static int can_sock_ioctl_vmeth(void *obj, unsigned int request, va_list args)
@@ -343,7 +484,7 @@ static int can_sock_getsockopt_vmeth(void *obj, int level, int optname,
 	if (level == SOL_CAN_RAW) {
 		const struct canbus_api *api;
 		struct net_if *iface;
-		struct device *dev;
+		const struct device *dev;
 
 		if (optval == NULL) {
 			errno = EINVAL;
@@ -352,9 +493,9 @@ static int can_sock_getsockopt_vmeth(void *obj, int level, int optname,
 
 		iface = net_context_get_iface(obj);
 		dev = net_if_get_device(iface);
-		api = dev->driver_api;
+		api = dev->api;
 
-		if (!api->getsockopt) {
+		if (!api || !api->getsockopt) {
 			errno = ENOTSUP;
 			return -1;
 		}
@@ -366,58 +507,179 @@ static int can_sock_getsockopt_vmeth(void *obj, int level, int optname,
 	return zcan_getsockopt_ctx(obj, level, optname, optval, optlen);
 }
 
+static int can_register_receiver(struct net_if *iface, struct net_context *ctx,
+				 canid_t can_id, canid_t can_mask)
+{
+	int i;
+
+	NET_DBG("Max %lu receivers", ARRAY_SIZE(receivers));
+
+	for (i = 0; i < ARRAY_SIZE(receivers); i++) {
+		if (receivers[i].ctx != NULL) {
+			continue;
+		}
+
+		receivers[i].ctx = ctx;
+		receivers[i].iface = iface;
+		receivers[i].can_id = can_id;
+		receivers[i].can_mask = can_mask;
+
+		return i;
+	}
+
+	return -ENOENT;
+}
+
+static void can_unregister_receiver(struct net_if *iface,
+				    struct net_context *ctx,
+				    canid_t can_id, canid_t can_mask)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(receivers); i++) {
+		if (receivers[i].ctx == ctx &&
+		    receivers[i].iface == iface &&
+		    receivers[i].can_id == can_id &&
+		    receivers[i].can_mask == can_mask) {
+			receivers[i].ctx = NULL;
+			return;
+		}
+	}
+}
+
+static int can_register_filters(struct net_if *iface, struct net_context *ctx,
+				const struct can_filter *filters, int count)
+{
+	int i, ret;
+
+	NET_DBG("Registering %d filters", count);
+
+	for (i = 0; i < count; i++) {
+		ret = can_register_receiver(iface, ctx, filters[i].can_id,
+					    filters[i].can_mask);
+		if (ret < 0) {
+			goto revert;
+		}
+	}
+
+	return 0;
+
+revert:
+	for (i = 0; i < count; i++) {
+		can_unregister_receiver(iface, ctx, filters[i].can_id,
+					filters[i].can_mask);
+	}
+
+	return ret;
+}
+
+static void can_unregister_filters(struct net_if *iface,
+				   struct net_context *ctx,
+				   const struct can_filter *filters,
+				   int count)
+{
+	int i;
+
+	NET_DBG("Unregistering %d filters", count);
+
+	for (i = 0; i < count; i++) {
+		can_unregister_receiver(iface, ctx, filters[i].can_id,
+					filters[i].can_mask);
+	}
+}
+
 static int can_sock_setsockopt_vmeth(void *obj, int level, int optname,
 				     const void *optval, socklen_t optlen)
 {
-	if (level == SOL_CAN_RAW) {
-		const struct canbus_api *api;
-		struct net_if *iface;
-		struct device *dev;
+	const struct canbus_api *api;
+	struct net_if *iface;
+	const struct device *dev;
+	int ret;
 
-		/* The application must use can_filter and then we convert
-		 * it to zcan_filter as the CANBUS drivers expects that.
-		 */
-		if (optname == CAN_RAW_FILTER &&
-		    optlen != sizeof(struct can_filter)) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		if (optval == NULL) {
-			errno = EINVAL;
-			return -1;
-		}
-
-		iface = net_context_get_iface(obj);
-		dev = net_if_get_device(iface);
-		api = dev->driver_api;
-
-		if (!api->setsockopt) {
-			errno = ENOTSUP;
-			return -1;
-		}
-
-		if (optname == CAN_RAW_FILTER) {
-			struct zcan_filter zfilter;
-
-			can_copy_filter_to_zfilter((struct can_filter *)optval,
-						   &zfilter);
-
-			return api->setsockopt(dev, obj, level, optname,
-					       &zfilter, sizeof(zfilter));
-		}
-
-		return api->setsockopt(dev, obj, level, optname,
-				       optval, optlen);
+	if (level != SOL_CAN_RAW) {
+		return zcan_setsockopt_ctx(obj, level, optname, optval, optlen);
 	}
 
-	return zcan_setsockopt_ctx(obj, level, optname, optval, optlen);
+	/* The application must use CAN_filter and then we convert
+	 * it to zcan_filter as the CANBUS drivers expects that.
+	 */
+	if (optname == CAN_RAW_FILTER && optlen != sizeof(struct can_filter)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (optval == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	iface = net_context_get_iface(obj);
+	dev = net_if_get_device(iface);
+	api = dev->api;
+
+	if (!api || !api->setsockopt) {
+		errno = ENOTSUP;
+		return -1;
+	}
+
+	if (optname == CAN_RAW_FILTER) {
+		int count, i;
+
+		if (optlen % sizeof(struct can_filter) != 0) {
+			errno = EINVAL;
+			return -1;
+		}
+
+		count = optlen / sizeof(struct can_filter);
+
+		ret = can_register_filters(iface, obj, optval, count);
+		if (ret < 0) {
+			errno = -ret;
+			return -1;
+		}
+
+		for (i = 0; i < count; i++) {
+			struct can_filter *filter;
+			struct zcan_filter zfilter;
+			bool duplicate;
+
+			filter = &((struct can_filter *)optval)[i];
+
+			/* If someone has already attached the same filter to
+			 * same interface, we do not need to do it here again.
+			 */
+			duplicate = is_already_attached(filter, iface, obj);
+			if (duplicate) {
+				continue;
+			}
+
+			can_copy_filter_to_zfilter(filter, &zfilter);
+
+			ret = api->setsockopt(dev, obj, level, optname,
+					      &zfilter, sizeof(zfilter));
+			if (ret < 0) {
+				break;
+			}
+		}
+
+		if (ret < 0) {
+			can_unregister_filters(iface, obj, optval, count);
+
+			errno = -ret;
+			return -1;
+		}
+
+		return 0;
+	}
+
+	return api->setsockopt(dev, obj, level, optname, optval, optlen);
 }
 
 static const struct socket_op_vtable can_sock_fd_op_vtable = {
 	.fd_vtable = {
 		.read = can_sock_read_vmeth,
 		.write = can_sock_write_vmeth,
+		.close = can_sock_close_vmeth,
 		.ioctl = can_sock_ioctl_vmeth,
 	},
 	.bind = can_sock_bind_vmeth,
@@ -429,3 +691,14 @@ static const struct socket_op_vtable can_sock_fd_op_vtable = {
 	.getsockopt = can_sock_getsockopt_vmeth,
 	.setsockopt = can_sock_setsockopt_vmeth,
 };
+
+static bool can_is_supported(int family, int type, int proto)
+{
+	if (type != SOCK_RAW || proto != CAN_RAW) {
+		return false;
+	}
+
+	return true;
+}
+
+NET_SOCKET_REGISTER(af_can, AF_CAN, can_is_supported, zcan_socket);

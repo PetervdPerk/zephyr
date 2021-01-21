@@ -17,19 +17,27 @@
 #include <device.h>
 #include <kernel.h>
 #include <net/buf.h>
-#include <misc/byteorder.h>
-#include <crc.h>
-#include <crc.h>
+#include <sys/byteorder.h>
+#include <sys/crc.h>
+#include <sys/crc.h>
 
-#include <gpio.h>
-#include <led_strip.h>
-#include <spi.h>
-#include <uart.h>
+#include <drivers/gpio.h>
+#include <drivers/led_strip.h>
+#include <drivers/spi.h>
+#include <drivers/uart.h>
 #include <usb/usb_device.h>
 #include <usb/class/usb_hid.h>
-#include <watchdog.h>
+#include <drivers/watchdog.h>
 
 #include <ztest.h>
+
+class foo_class {
+public:
+	foo_class(int foo) : foo(foo) {}
+	int get_foo() const { return foo;}
+private:
+	int foo;
+};
 
 struct foo {
 	int v1;
@@ -39,17 +47,29 @@ BUILD_ASSERT(sizeof(foo) == sizeof(int));
 
 static struct foo foos[5];
 /* Check that ARRAY_SIZE compiles. */
-BUILD_ASSERT_MSG(ARRAY_SIZE(foos) == 5, "expected 5 elements");
+BUILD_ASSERT(ARRAY_SIZE(foos) == 5, "expected 5 elements");
 
 /* Check that SYS_INIT() compiles. */
-static int test_init(struct device *dev)
+static int test_init(const struct device *dev)
 {
 	return 0;
 }
 
 SYS_INIT(test_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
+
+static void test_new_delete(void)
+{
+	foo_class *test_foo = new foo_class(10);
+	zassert_equal(test_foo->get_foo(), 10, NULL);
+	delete test_foo;
+}
+
 void test_main(void)
 {
-	/* Does nothing.  This is a compile only test. */
+	ztest_test_suite(cpp_tests,
+			 ztest_unit_test(test_new_delete)
+		);
+
+	ztest_run_test_suite(cpp_tests);
 }

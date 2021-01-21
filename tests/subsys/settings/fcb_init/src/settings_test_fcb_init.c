@@ -8,19 +8,38 @@
 #include <ztest.h>
 
 #include <zephyr.h>
-#include <misc/reboot.h>
+#include <power/reboot.h>
 #include <string.h>
 
 #include <settings/settings.h>
+#include <storage/flash_map.h>
+#include <drivers/flash.h>
 
-static u32_t val32;
+static uint32_t val32;
 
-static int c1_set(int argc, char **argv, void *value_ctx)
+#if defined(CONFIG_SOC_SERIES_STM32L0X) || defined(CONFIG_SOC_SERIES_STM32L0X)
+#define ERASED_VAL 0x00
+#else
+#define ERASED_VAL 0xFF
+#endif
+
+/* leverage that this area has to be embededd flash part */
+#if FLASH_AREA_LABEL_EXISTS(image_0)
+#define FLASH_WRITE_BLOCK_SIZE \
+	DT_PROP(DT_CHOSEN(zephyr_flash), write_block_size)
+static const volatile __attribute__((section(".rodata")))
+__aligned(FLASH_WRITE_BLOCK_SIZE)
+uint8_t prepared_mark[FLASH_WRITE_BLOCK_SIZE] = {ERASED_VAL};
+#endif
+
+static int c1_set(const char *name, size_t len, settings_read_cb read_cb,
+		  void *cb_arg)
 {
 	int rc;
+	const char *next;
 
-	if (argc == 1 && !strcmp(argv[0], "val32"))	 {
-		rc = settings_val_read_cb(value_ctx, &val32, sizeof(val32));
+	if (settings_name_steq(name, "val32", &next) && !next) {
+		rc = read_cb(cb_arg, &val32, sizeof(val32));
 		zassert_true(rc >= 0, "SETTINGS_VALUE_SET callback");
 		return 0;
 	}
@@ -28,8 +47,8 @@ static int c1_set(int argc, char **argv, void *value_ctx)
 	return -ENOENT;
 }
 
-static int c1_export(int (*export_func)(const char *name, void *value,
-					size_t val_len))
+static int c1_export(int (*export_func)(const char *name,
+					const void *value, size_t val_len))
 {
 	(void)export_func("hello/val32", &val32, sizeof(val32));
 
@@ -45,7 +64,7 @@ static struct settings_handler c1_settings = {
 void test_init(void)
 {
 	int err;
-	u32_t prev_int;
+	uint32_t prev_int;
 
 	val32++;
 
@@ -60,11 +79,55 @@ void test_init(void)
 		      "load value doesn't match to what was saved");
 }
 
+
+void test_prepare_storage(void)
+{
+#if FLASH_AREA_LABEL_EXISTS(image_0)
+/* This procedure uses mark which is stored inside SoC embedded program
+ * flash. It will not work on devices on which read/write to them is not
+ * possible.
+ */
+	int err;
+	const struct flash_area *fa;
+	const struct device *dev;
+	uint8_t new_val[FLASH_WRITE_BLOCK_SIZE];
+
+	if (prepared_mark[0] == ERASED_VAL) {
+		TC_PRINT("First run: erasing the storage\r\n");
+		err = flash_area_open(FLASH_AREA_ID(storage), &fa);
+		zassert_true(err == 0, "Can't open storage flash area");
+
+		err = flash_area_erase(fa, 0, fa->fa_size);
+		zassert_true(err == 0, "Can't erase storage flash area");
+
+		err = flash_area_open(FLASH_AREA_ID(image_0), &fa);
+		zassert_true(err == 0, "Can't open storage flash area");
+
+		dev = flash_area_get_device(fa);
+
+		err = flash_write_protection_set(dev, false);
+		zassert_true(err == 0, "can't unprotect flash");
+
+		(void)memset(new_val, (~ERASED_VAL) & 0xFF,
+			     FLASH_WRITE_BLOCK_SIZE);
+		err = flash_write(dev, (off_t)&prepared_mark, &new_val,
+				  sizeof(new_val));
+		zassert_true(err == 0, "can't write prepared_mark");
+	}
+#else
+	TC_PRINT("Storage preparation can't be performed\r\n");
+	TC_PRINT("Erase storage manually before test flashin\r\n");
+#endif
+}
+
 void test_init_setup(void)
 {
 	int err;
 
-	settings_subsys_init();
+	test_prepare_storage();
+
+	err = settings_subsys_init();
+	zassert_true(err == 0, "subsys init failed");
 
 	err = settings_register(&c1_settings);
 	zassert_true(err == 0, "can't regsister the settings handler");
@@ -76,7 +139,7 @@ void test_init_setup(void)
 		val32 = 1U;
 		err = settings_save();
 		zassert_true(err == 0, "can't save settings");
-		k_sleep(250);
+		k_sleep(K_MSEC(250));
 		sys_reboot(SYS_REBOOT_COLD);
 	}
 }

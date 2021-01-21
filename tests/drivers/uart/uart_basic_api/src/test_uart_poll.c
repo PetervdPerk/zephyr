@@ -11,7 +11,7 @@ static const char *poll_data = "This is a POLL test.\r\n";
 static int test_poll_in(void)
 {
 	unsigned char recv_char;
-	struct device *uart_dev = device_get_binding(UART_DEVICE_NAME);
+	const struct device *uart_dev = device_get_binding(UART_DEVICE_NAME);
 
 	if (!uart_dev) {
 		TC_PRINT("Cannot get UART device\n");
@@ -22,8 +22,8 @@ static int test_poll_in(void)
 
 	/* Verify uart_poll_in() */
 	while (1) {
-		while (uart_poll_in(uart_dev, &recv_char) < 0)
-			;
+		while (uart_poll_in(uart_dev, &recv_char) < 0) {
+		}
 
 		TC_PRINT("%c", recv_char);
 
@@ -38,7 +38,7 @@ static int test_poll_in(void)
 static int test_poll_out(void)
 {
 	int i;
-	struct device *uart_dev = device_get_binding(UART_DEVICE_NAME);
+	const struct device *uart_dev = device_get_binding(UART_DEVICE_NAME);
 
 	if (!uart_dev) {
 		TC_PRINT("Cannot get UART device\n");

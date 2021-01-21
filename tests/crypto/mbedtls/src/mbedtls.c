@@ -7,7 +7,7 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#include <misc/printk.h>
+#include <sys/printk.h>
 #define  MBEDTLS_PRINT (int(*)(const char *, ...)) printk
 
 #include <string.h>
@@ -75,7 +75,7 @@
 #if defined(MBEDTLS_RSA_C)
 int rand(void)
 {
-	static ZTEST_DMEM u32_t seed = 7U;
+	static ZTEST_DMEM uint32_t seed = 7U;
 
 	seed ^= seed << 13;
 	seed ^= seed >> 17;
@@ -164,7 +164,9 @@ void test_mbedtls(void)
 
 	void *pointer;
 
+#if defined(MBEDTLS_PLATFORM_PRINTF_ALT)
 	mbedtls_platform_set_printf(MBEDTLS_PRINT);
+#endif
 
 	TC_START("Performing mbedTLS crypto tests:");
 

@@ -16,6 +16,7 @@
 
 #include <zephyr/types.h>
 #include <net/net_core.h>
+#include <net/net_mgmt.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,7 +33,7 @@ extern "C" {
  * @typedef net_stats_t
  * @brief Network statistics counter
  */
-typedef u32_t net_stats_t;
+typedef uint32_t net_stats_t;
 
 /**
  * @brief Number of bytes sent and received.
@@ -128,14 +129,17 @@ struct net_stats_tcp {
 	/** Amount of retransmitted data. */
 	net_stats_t resent;
 
-	/** Number of recived TCP segments. */
+	/** Number of dropped packets at the TCP layer. */
+	net_stats_t drop;
+
+	/** Number of received TCP segments. */
 	net_stats_t recv;
 
 	/** Number of sent TCP segments. */
 	net_stats_t sent;
 
 	/** Number of dropped TCP segments. */
-	net_stats_t drop;
+	net_stats_t seg_drop;
 
 	/** Number of TCP segments with a bad checksum. */
 	net_stats_t chkerr;
@@ -168,7 +172,7 @@ struct net_stats_udp {
 	/** Number of dropped UDP segments. */
 	net_stats_t drop;
 
-	/** Number of recived UDP segments. */
+	/** Number of received UDP segments. */
 	net_stats_t recv;
 
 	/** Number of sent UDP segments. */
@@ -202,21 +206,59 @@ struct net_stats_ipv6_mld {
 };
 
 /**
+ * @brief Network packet transfer times for calculating average TX time
+ */
+struct net_stats_tx_time {
+	uint64_t sum;
+	net_stats_t count;
+};
+
+/**
+ * @brief Network packet receive times for calculating average RX time
+ */
+struct net_stats_rx_time {
+	uint64_t sum;
+	net_stats_t count;
+};
+
+/**
  * @brief Traffic class statistics
  */
 struct net_stats_tc {
 	struct {
+		struct net_stats_tx_time tx_time;
+#if defined(CONFIG_NET_PKT_TXTIME_STATS_DETAIL)
+		struct net_stats_tx_time
+				tx_time_detail[NET_PKT_DETAIL_STATS_COUNT];
+#endif
 		net_stats_t pkts;
 		net_stats_t bytes;
-		u8_t priority;
+		uint8_t priority;
 	} sent[NET_TC_TX_COUNT];
 
 	struct {
+		struct net_stats_rx_time rx_time;
+#if defined(CONFIG_NET_PKT_RXTIME_STATS_DETAIL)
+		struct net_stats_rx_time
+				rx_time_detail[NET_PKT_DETAIL_STATS_COUNT];
+#endif
 		net_stats_t pkts;
 		net_stats_t bytes;
-		u8_t priority;
+		uint8_t priority;
 	} recv[NET_TC_RX_COUNT];
 };
+
+
+/**
+ * @brief Power management statistics
+ */
+struct net_stats_pm {
+	uint64_t overall_suspend_time;
+	net_stats_t suspend_count;
+	uint32_t last_suspend_time;
+	uint32_t start_time;
+};
+
 
 /**
  * @brief All network statistics in one struct.
@@ -272,6 +314,35 @@ struct net_stats {
 #if NET_TC_COUNT > 1
 	/** Traffic class statistics */
 	struct net_stats_tc tc;
+#endif
+
+#if defined(CONFIG_NET_CONTEXT_TIMESTAMP) && \
+	defined(CONFIG_NET_PKT_TXTIME_STATS)
+#error \
+"Cannot define both CONFIG_NET_CONTEXT_TIMESTAMP and CONFIG_NET_PKT_TXTIME_STATS"
+#endif
+#if defined(CONFIG_NET_CONTEXT_TIMESTAMP) || \
+					defined(CONFIG_NET_PKT_TXTIME_STATS)
+	/** Network packet TX time statistics */
+	struct net_stats_tx_time tx_time;
+
+#if defined(CONFIG_NET_PKT_TXTIME_STATS_DETAIL)
+	/** Network packet TX time detail statistics */
+	struct net_stats_tx_time tx_time_detail[NET_PKT_DETAIL_STATS_COUNT];
+#endif
+#if defined(CONFIG_NET_PKT_RXTIME_STATS_DETAIL)
+	/** Network packet RX time detail statistics */
+	struct net_stats_tx_time rx_time_detail[NET_PKT_DETAIL_STATS_COUNT];
+#endif
+#endif
+
+#if defined(CONFIG_NET_PKT_RXTIME_STATS)
+	/** Network packet RX time statistics */
+	struct net_stats_rx_time rx_time;
+#endif
+
+#if defined(CONFIG_NET_STATISTICS_POWER_MANAGEMENT)
+	struct net_stats_pm pm;
 #endif
 };
 
@@ -335,7 +406,7 @@ struct net_stats_eth_hw_timestamp {
  */
 struct net_stats_eth_vendor {
 	const char * const key;
-	u32_t value;
+	uint32_t value;
 };
 #endif
 
@@ -362,10 +433,22 @@ struct net_stats_eth {
 #endif
 };
 
+/**
+ * @brief All PPP specific statistics
+ */
+struct net_stats_ppp {
+	struct net_stats_bytes bytes;
+	struct net_stats_pkts pkts;
+
+	/** Number of received and dropped PPP frames. */
+	net_stats_t drop;
+
+	/** Number of received PPP frames with a bad checksum. */
+	net_stats_t chkerr;
+};
+
 #if defined(CONFIG_NET_STATISTICS_USER_API)
 /* Management part definitions */
-
-#include <net/net_mgmt.h>
 
 #define _NET_STATS_LAYER	NET_MGMT_LAYER_L3
 #define _NET_STATS_CODE		0x101
@@ -384,6 +467,8 @@ enum net_request_stats_cmd {
 	NET_REQUEST_STATS_CMD_GET_UDP,
 	NET_REQUEST_STATS_CMD_GET_TCP,
 	NET_REQUEST_STATS_CMD_GET_ETHERNET,
+	NET_REQUEST_STATS_CMD_GET_PPP,
+	NET_REQUEST_STATS_CMD_GET_PM
 };
 
 #define NET_REQUEST_STATS_GET_ALL				\
@@ -455,7 +540,21 @@ NET_MGMT_DEFINE_REQUEST_HANDLER(NET_REQUEST_STATS_GET_TCP);
 NET_MGMT_DEFINE_REQUEST_HANDLER(NET_REQUEST_STATS_GET_ETHERNET);
 #endif /* CONFIG_NET_STATISTICS_ETHERNET */
 
+#if defined(CONFIG_NET_STATISTICS_PPP)
+#define NET_REQUEST_STATS_GET_PPP				\
+	(_NET_STATS_BASE | NET_REQUEST_STATS_CMD_GET_PPP)
+
+NET_MGMT_DEFINE_REQUEST_HANDLER(NET_REQUEST_STATS_GET_PPP);
+#endif /* CONFIG_NET_STATISTICS_PPP */
+
 #endif /* CONFIG_NET_STATISTICS_USER_API */
+
+#if defined(CONFIG_NET_STATISTICS_POWER_MANAGEMENT)
+#define NET_REQUEST_STATS_GET_PM				\
+	(_NET_STATS_BASE | NET_REQUEST_STATS_CMD_GET_PM)
+
+NET_MGMT_DEFINE_REQUEST_HANDLER(NET_REQUEST_STATS_GET_PM);
+#endif /* CONFIG_NET_STATISTICS_POWER_MANAGEMENT */
 
 /**
  * @}

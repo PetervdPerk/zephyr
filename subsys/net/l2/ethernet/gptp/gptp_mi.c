@@ -40,6 +40,32 @@ static const char * const state2str(enum gptp_port_state state)
 
 	return "<unknown>";
 }
+
+static const char * const pa_info_state2str(enum gptp_pa_info_states state)
+{
+	switch (state) {
+	case GPTP_PA_INFO_DISABLED:
+		return "DISABLED";
+	case GPTP_PA_INFO_POST_DISABLED:
+		return "POST_DISABLED";
+	case GPTP_PA_INFO_AGED:
+		return "AGED";
+	case GPTP_PA_INFO_UPDATE:
+		return "UPDATE";
+	case GPTP_PA_INFO_CURRENT:
+		return "CURRENT";
+	case GPTP_PA_INFO_RECEIVE:
+		return "RECEIVE";
+	case GPTP_PA_INFO_SUPERIOR_MASTER_PORT:
+		return "SUPERIOR_MASTER_PORT";
+	case GPTP_PA_INFO_REPEATED_MASTER_PORT:
+		return "REPEATED_MASTER_PORT";
+	case GPTP_PA_INFO_INFERIOR_MASTER_OR_OTHER_PORT:
+		return "INFERIOR_MASTER_OR_OTHER_PORT";
+	}
+
+	return "<unknown>";
+}
 #endif
 
 #if CONFIG_NET_GPTP_LOG_LEVEL >= LOG_LEVEL_DBG
@@ -64,6 +90,33 @@ void gptp_change_port_state(int port, enum gptp_port_state state)
 
 	global_ds->selected_role[port] = state;
 };
+
+#if CONFIG_NET_GPTP_LOG_LEVEL >= LOG_LEVEL_DBG
+void gptp_change_pa_info_state_debug(
+	int port,
+	struct gptp_port_announce_information_state *pa_info_state,
+	enum gptp_pa_info_states state,
+	const char *caller,
+	int line)
+#else
+void gptp_change_pa_info_state(
+	int port,
+	struct gptp_port_announce_information_state *pa_info_state,
+	enum gptp_pa_info_states state)
+#endif
+{
+	if (pa_info_state->state == state) {
+		return;
+	}
+
+#if CONFIG_NET_GPTP_LOG_LEVEL >= LOG_LEVEL_DBG
+	NET_DBG("[%d] PA info state %s -> %s (%s():%d)", port,
+		pa_info_state2str(pa_info_state->state),
+		pa_info_state2str(state), caller, line);
+#endif
+
+	pa_info_state->state = state;
+}
 
 static void gptp_mi_half_sync_itv_timeout(struct k_timer *timer)
 {
@@ -205,7 +258,7 @@ static void gptp_mi_init_port_announce_info_sm(int port)
 		     announce_timer_handler, NULL);
 
 	state->ann_expired = false;
-	state->state = GPTP_PA_INFO_DISABLED;
+	gptp_change_pa_info_state(port, state, GPTP_PA_INFO_DISABLED);
 }
 
 static void gptp_mi_init_bmca_data(int port)
@@ -277,9 +330,9 @@ void gptp_mi_init_state_machine(void)
 	gptp_mi_init_clock_master_sync_rcv_sm();
 }
 
-u64_t gptp_get_current_time_nanosecond(int port)
+uint64_t gptp_get_current_time_nanosecond(int port)
 {
-	struct device *clk;
+	const struct device *clk;
 
 	clk = net_eth_get_ptp_clock(GPTP_PORT_IFACE(port));
 	if (clk) {
@@ -287,7 +340,7 @@ u64_t gptp_get_current_time_nanosecond(int port)
 
 		ptp_clock_get(clk, &tm);
 
-		if (tm.second == 0 && tm.nanosecond == 0) {
+		if (tm.second == 0U && tm.nanosecond == 0U) {
 			goto use_uptime;
 		}
 
@@ -301,7 +354,7 @@ use_uptime:
 	return k_uptime_get() * 1000000;
 }
 
-u64_t gptp_get_current_master_time_nanosecond(void)
+uint64_t gptp_get_current_master_time_nanosecond(void)
 {
 	int port;
 	enum gptp_port_state *port_role;
@@ -352,11 +405,13 @@ static void gptp_mi_pss_rcv_compute(int port)
 static void start_rcv_sync_timer(struct gptp_port_ds *port_ds,
 				 struct gptp_pss_rcv_state *state)
 {
-	s32_t duration;
+	k_timeout_t duration;
 
-	duration = port_ds->sync_receipt_timeout_time_itv;
+	duration = K_MSEC(port_ds->sync_receipt_timeout_time_itv /
+			  (NSEC_PER_USEC * USEC_PER_MSEC));
 
-	k_timer_start(&state->rcv_sync_receipt_timeout_timer, duration, 0);
+	k_timer_start(&state->rcv_sync_receipt_timeout_timer, duration,
+		      K_NO_WAIT);
 }
 
 static void gptp_mi_pss_rcv_state_machine(int port)
@@ -380,7 +435,7 @@ static void gptp_mi_pss_rcv_state_machine(int port)
 		k_timer_stop(&state->rcv_sync_receipt_timeout_timer);
 		state->rcv_sync_receipt_timeout_timer_expired = false;
 
-		/* Fallthrough. */
+		__fallthrough;
 	case GPTP_PSS_RCV_RECEIVED_SYNC:
 		if (state->rcvd_md_sync) {
 			state->rcvd_md_sync = false;
@@ -454,7 +509,7 @@ static void gptp_mi_pss_send_state_machine(int port)
 	struct gptp_pss_send_state *state;
 	struct gptp_port_ds *port_ds;
 	struct gptp_global_ds *global_ds;
-	s32_t duration;
+	k_timeout_t duration;
 
 	global_ds = GPTP_GLOBAL_DS();
 	state = &GPTP_PORT_STATE(port)->pss_send;
@@ -486,7 +541,7 @@ static void gptp_mi_pss_send_state_machine(int port)
 			break;
 		}
 
-		/* Fallthrough. */
+		__fallthrough;
 	case GPTP_PSS_SEND_SEND_MD_SYNC:
 		if (state->rcvd_pss_sync) {
 			gptp_mi_pss_store_last_pss(port);
@@ -502,15 +557,16 @@ static void gptp_mi_pss_send_state_machine(int port)
 		state->send_sync_receipt_timeout_timer_expired = false;
 
 		/* Convert ns to ms. */
-		duration = gptp_uscaled_ns_to_timer_ms(
-						&port_ds->half_sync_itv);
+		duration = K_MSEC(gptp_uscaled_ns_to_timer_ms(
+					  &port_ds->half_sync_itv));
 
 		/* Start 0.5 * syncInterval timeout timer. */
-		k_timer_start(&state->half_sync_itv_timer, duration, 0);
+		k_timer_start(&state->half_sync_itv_timer, duration,
+			      K_NO_WAIT);
 
 		gptp_mi_pss_send_md_sync_send(port);
 
-		/* Fallthrough. */
+		__fallthrough;
 	case GPTP_PSS_SEND_SET_SYNC_RECEIPT_TIMEOUT:
 		/* Test conditions have been slightly rearranged compared to
 		 * their definitions in the standard in order not to test
@@ -544,11 +600,12 @@ static void gptp_mi_pss_send_state_machine(int port)
 			k_timer_stop(&state->send_sync_receipt_timeout_timer);
 			state->send_sync_receipt_timeout_timer_expired = false;
 
-			duration = port_ds->sync_receipt_timeout_time_itv /
-				(NSEC_PER_USEC * USEC_PER_MSEC);
+			duration =
+				K_MSEC(port_ds->sync_receipt_timeout_time_itv /
+				       (NSEC_PER_USEC * USEC_PER_MSEC));
 
 			k_timer_start(&state->send_sync_receipt_timeout_timer,
-				      duration, 0);
+				      duration, K_NO_WAIT);
 
 		} else if (state->send_sync_receipt_timeout_timer_expired) {
 			state->state = GPTP_PSS_SEND_SYNC_RECEIPT_TIMEOUT;
@@ -586,7 +643,7 @@ static void gptp_mi_site_ss_send_to_pss(void)
 static void gptp_mi_site_sync_sync_state_machine(void)
 {
 	bool gm_present;
-	u16_t local_port_number;
+	uint16_t local_port_number;
 	struct gptp_site_sync_sync_state *state;
 	struct gptp_clk_slave_sync_state *clk_ss;
 
@@ -640,7 +697,7 @@ static void gptp_mi_clk_slave_sync_compute(void)
 	struct gptp_global_ds *global_ds;
 	struct gptp_md_sync_info *pss;
 	struct gptp_port_ds *port_ds;
-	u64_t sync_receipt_time;
+	uint64_t sync_receipt_time;
 
 	state = &GPTP_STATE()->clk_slave_sync;
 	offset_state = &GPTP_STATE()->clk_master_sync_offset;
@@ -683,9 +740,9 @@ static void gptp_update_local_port_clock(void)
 	struct gptp_global_ds *global_ds;
 	struct gptp_port_ds *port_ds;
 	int port;
-	s64_t nanosecond_diff;
-	s64_t second_diff;
-	struct device *clk;
+	int64_t nanosecond_diff;
+	int64_t second_diff;
+	const struct device *clk;
 	struct net_ptp_time tm;
 	int key;
 
@@ -737,6 +794,13 @@ static void gptp_update_local_port_clock(void)
 		key = irq_lock();
 		ptp_clock_get(clk, &tm);
 
+		if (second_diff < 0 && tm.second < -second_diff) {
+			NET_DBG("Do not set local clock because %lu < %ld",
+				(unsigned long int)tm.second,
+				(long int)-second_diff);
+			goto skip_clock_set;
+		}
+
 		tm.second += second_diff;
 
 		if (nanosecond_diff < 0 &&
@@ -754,7 +818,18 @@ static void gptp_update_local_port_clock(void)
 			tm.nanosecond -= NSEC_PER_SEC;
 		}
 
+		/* This prints too much data normally but can be enabled to see
+		 * what time we are setting to the local clock.
+		 */
+		if (0) {
+			NET_INFO("Set local clock %lu.%lu",
+				 (unsigned long int)tm.second,
+				 (unsigned long int)tm.nanosecond);
+		}
+
 		ptp_clock_set(clk, &tm);
+
+	skip_clock_set:
 		irq_unlock(key);
 	} else {
 		if (nanosecond_diff < -200) {
@@ -843,7 +918,7 @@ static inline void gptp_mi_setup_sync_send_time(void)
 {
 	struct gptp_clk_master_sync_snd_state *state;
 	struct gptp_global_ds *global_ds;
-	u64_t time_helper;
+	uint64_t time_helper;
 
 	state = &GPTP_STATE()->clk_master_sync_send;
 	global_ds = GPTP_GLOBAL_DS();
@@ -855,7 +930,7 @@ static inline void gptp_mi_setup_sync_send_time(void)
 
 	/* Check for overflow */
 	if (state->sync_send_time.low < time_helper) {
-		state->sync_send_time.high += 1;
+		state->sync_send_time.high += 1U;
 		state->sync_send_time.low =
 			UINT64_MAX - state->sync_send_time.low;
 	}
@@ -866,14 +941,14 @@ static void gptp_mi_set_ps_sync_cmss(void)
 	struct gptp_clk_master_sync_snd_state *state;
 	struct gptp_global_ds *global_ds;
 	struct gptp_md_sync_info *sync_info;
-	u64_t current_time;
+	uint64_t current_time;
 
 	global_ds = GPTP_GLOBAL_DS();
 	state = &GPTP_STATE()->clk_master_sync_send;
 
 	sync_info = &state->pss_snd.sync_info;
 
-	state->pss_snd.local_port_number = 0;
+	state->pss_snd.local_port_number = 0U;
 
 	current_time = gptp_get_current_master_time_nanosecond();
 
@@ -891,7 +966,7 @@ static void gptp_mi_set_ps_sync_cmss(void)
 	       GPTP_DEFAULT_DS()->clk_id,
 	       GPTP_CLOCK_ID_LEN);
 
-	sync_info->src_port_id.port_number = 0;
+	sync_info->src_port_id.port_number = 0U;
 	sync_info->log_msg_interval = CONFIG_NET_GPTP_INIT_LOG_SYNC_ITV;
 	sync_info->upstream_tx_time = global_ds->local_time.low;
 
@@ -927,7 +1002,7 @@ static void gptp_mi_clk_master_sync_snd_state_machine(void)
 {
 	struct gptp_clk_master_sync_snd_state *state;
 	struct gptp_global_ds *global_ds;
-	u64_t current_time;
+	uint64_t current_time;
 
 	state = &GPTP_STATE()->clk_master_sync_send;
 	global_ds = GPTP_GLOBAL_DS();
@@ -980,8 +1055,8 @@ static void gptp_compute_gm_rate_ratio(void)
 	memcpy(&local_time_n, &global_ds->local_time,
 	       sizeof(struct gptp_uscaled_ns));
 
-	if ((src_time_0.second == 0 && src_time_0.fract_nsecond == 0)
-	    || (local_time_0.high == 0 && local_time_0.low == 0)) {
+	if ((src_time_0.second == 0U && src_time_0.fract_nsecond == 0U)
+	    || (local_time_0.high == 0U && local_time_0.low == 0U)) {
 		memcpy(&src_time_0, &src_time_n,
 		       sizeof(struct net_ptp_extended_time));
 
@@ -1030,7 +1105,7 @@ static void gptp_compute_gm_rate_ratio(void)
 	if (src_time_n.fract_nsecond >= src_time_0.fract_nsecond) {
 		src_time_n.fract_nsecond -= src_time_0.fract_nsecond;
 	} else {
-		src_time_n.second -= 1;
+		src_time_n.second -= 1U;
 		src_time_n.fract_nsecond = (NSEC_PER_SEC * GPTP_POW2_16)
 			- src_time_0.fract_nsecond;
 	}
@@ -1041,7 +1116,7 @@ static void gptp_compute_gm_rate_ratio(void)
 	if (local_time_n.low >= local_time_0.low) {
 		local_time_n.low -= local_time_0.low;
 	} else {
-		local_time_n.high -= 1;
+		local_time_n.high -= 1U;
 		local_time_n.low = UINT64_MAX - local_time_0.low;
 	}
 
@@ -1061,7 +1136,7 @@ static void gptp_mi_clk_master_sync_rcv_state_machine(void)
 
 #ifdef CONFIG_NET_GPTP_PROBE_CLOCK_SOURCE_ON_DEMAND
 	struct gptp_clk_src_time_invoke_params invoke_args = {};
-	u64_t cur = gptp_get_current_master_time_nanosecond();
+	uint64_t cur = gptp_get_current_master_time_nanosecond();
 
 	invoke_args.src_time.second = cur / NSEC_PER_SEC;
 	cur -= (invoke_args.src_time.second * NSEC_PER_SEC);
@@ -1091,7 +1166,7 @@ static void gptp_mi_clk_master_sync_rcv_state_machine(void)
 		break;
 
 	case GPTP_CMS_RCV_SOURCE_TIME:
-		global_ds->local_time.high = 0;
+		global_ds->local_time.high = 0U;
 		global_ds->local_time.low =
 			gptp_get_current_master_time_nanosecond();
 
@@ -1142,7 +1217,7 @@ static void copy_path_trace(struct gptp_announce *announce)
 	       len);
 
 	/* Append local clockIdentity. */
-	memcpy((u8_t *)sys_path_trace->path_sequence + len,
+	memcpy((uint8_t *)sys_path_trace->path_sequence + len,
 	       GPTP_DEFAULT_DS()->clk_id, GPTP_CLOCK_ID_LEN);
 }
 
@@ -1151,7 +1226,7 @@ static bool gptp_mi_qualify_announce(int port, struct net_pkt *announce_msg)
 	struct gptp_announce *announce;
 	struct gptp_hdr *hdr;
 	int i;
-	u16_t len;
+	uint16_t len;
 
 	hdr = GPTP_HDR(announce_msg);
 	announce = GPTP_ANNOUNCE(announce_msg);
@@ -1162,7 +1237,7 @@ static bool gptp_mi_qualify_announce(int port, struct net_pkt *announce_msg)
 	}
 
 	len = ntohs(announce->steps_removed);
-	if (len >= 255) {
+	if (len >= 255U) {
 		return false;
 	}
 
@@ -1248,7 +1323,7 @@ static enum gptp_received_info compare_priority_vectors(
 	rsi_cmp = memcmp(&announce->root_system_id,
 			 &vector->root_system_id,
 			 sizeof(struct gptp_root_system_identity) +
-			 sizeof(u16_t));
+			 sizeof(uint16_t));
 	if (rsi_cmp < 0) {
 		/* Better rootSystemIdentity. */
 		return GPTP_RCVD_INFO_SUPERIOR_MASTER_INFO;
@@ -1333,7 +1408,7 @@ static void copy_priority_vector(struct gptp_priority_vector *vector,
 	announce = GPTP_ANNOUNCE(pkt);
 
 	memcpy(&vector->root_system_id, &announce->root_system_id,
-	       sizeof(struct gptp_root_system_identity) + sizeof(u16_t));
+	       sizeof(struct gptp_root_system_identity) + sizeof(uint16_t));
 
 	memcpy(&vector->src_port_id, &hdr->port_id,
 	       sizeof(struct gptp_port_identity));
@@ -1358,7 +1433,7 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 
 	if ((!port_ds->ptt_port_enabled || !port_ds->as_capable) &&
 	    (bmca_data->info_is != GPTP_INFO_IS_DISABLED)) {
-		state->state = GPTP_PA_INFO_DISABLED;
+		gptp_change_pa_info_state(port, state, GPTP_PA_INFO_DISABLED);
 	}
 
 	switch (state->state) {
@@ -1367,16 +1442,19 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 		bmca_data->info_is = GPTP_INFO_IS_DISABLED;
 		SET_RESELECT(global_ds, port);
 		CLEAR_SELECTED(global_ds, port);
-		state->state = GPTP_PA_INFO_POST_DISABLED;
+		gptp_change_pa_info_state(port, state,
+					  GPTP_PA_INFO_POST_DISABLED);
 		k_timer_stop(&state->ann_rcpt_expiry_timer);
 		state->ann_expired = true;
-		/* Fallthrough. */
+		__fallthrough;
 
 	case GPTP_PA_INFO_POST_DISABLED:
 		if (port_ds->ptt_port_enabled && port_ds->as_capable) {
-			state->state = GPTP_PA_INFO_AGED;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_AGED);
 		} else if (bmca_data->rcvd_msg) {
-			state->state = GPTP_PA_INFO_DISABLED;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_DISABLED);
 		}
 
 		break;
@@ -1386,7 +1464,7 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 		CLEAR_SELECTED(global_ds, port);
 		SET_RESELECT(global_ds, port);
 		/* Transition will be actually tested in UPDATE state. */
-		state->state = GPTP_PA_INFO_UPDATE;
+		gptp_change_pa_info_state(port, state, GPTP_PA_INFO_UPDATE);
 		break;
 
 	case GPTP_PA_INFO_UPDATE:
@@ -1400,7 +1478,8 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 			bmca_data->updt_info = false;
 			bmca_data->info_is = GPTP_INFO_IS_MINE;
 			bmca_data->new_info = true;
-			state->state = GPTP_PA_INFO_CURRENT;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_CURRENT);
 		}
 
 		break;
@@ -1408,16 +1487,19 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 	case GPTP_PA_INFO_CURRENT:
 		pss_rcv = &GPTP_PORT_STATE(port)->pss_rcv;
 		if (IS_SELECTED(global_ds, port) && bmca_data->updt_info) {
-			state->state = GPTP_PA_INFO_UPDATE;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_UPDATE);
 		} else if (bmca_data->rcvd_msg && !bmca_data->updt_info) {
-			state->state = GPTP_PA_INFO_RECEIVE;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_RECEIVE);
 		} else if ((bmca_data->info_is == GPTP_INFO_IS_RECEIVED) &&
 			   !bmca_data->updt_info &&
 			   !bmca_data->rcvd_msg &&
 			   (state->ann_expired ||
 			    (global_ds->gm_present &&
 			   pss_rcv->rcv_sync_receipt_timeout_timer_expired))) {
-			state->state = GPTP_PA_INFO_AGED;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_AGED);
 		}
 
 		break;
@@ -1425,16 +1507,18 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 	case GPTP_PA_INFO_RECEIVE:
 		switch (rcv_info(port)) {
 		case GPTP_RCVD_INFO_SUPERIOR_MASTER_INFO:
-			state->state = GPTP_PA_INFO_SUPERIOR_MASTER_PORT;
+			gptp_change_pa_info_state(port, state,
+				GPTP_PA_INFO_SUPERIOR_MASTER_PORT);
 			break;
 		case GPTP_RCVD_INFO_REPEATED_MASTER_INFO:
-			state->state = GPTP_PA_INFO_REPEATED_MASTER_PORT;
+			gptp_change_pa_info_state(port, state,
+				GPTP_PA_INFO_REPEATED_MASTER_PORT);
 			break;
 		case GPTP_RCVD_INFO_INFERIOR_MASTER_INFO:
-			/* Fallthrough. */
+			__fallthrough;
 		case GPTP_RCVD_INFO_OTHER_INFO:
-			state->state =
-				GPTP_PA_INFO_INFERIOR_MASTER_OR_OTHER_PORT;
+			gptp_change_pa_info_state(port, state,
+				GPTP_PA_INFO_INFERIOR_MASTER_OR_OTHER_PORT);
 			break;
 		}
 
@@ -1449,7 +1533,8 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 		if (!bmca_data->rcvd_announce_ptr) {
 			/* Shouldn't be reached. Checked for safety reason. */
 			bmca_data->rcvd_msg = false;
-			state->state = GPTP_PA_INFO_CURRENT;
+			gptp_change_pa_info_state(port, state,
+						  GPTP_PA_INFO_CURRENT);
 			break;
 		}
 
@@ -1466,16 +1551,16 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 		bmca_data->info_is = GPTP_INFO_IS_RECEIVED;
 		CLEAR_SELECTED(global_ds, port);
 		SET_RESELECT(global_ds, port);
-		/* Fallthrough. */
+		__fallthrough;
 
 	case GPTP_PA_INFO_REPEATED_MASTER_PORT:
 		k_timer_stop(&state->ann_rcpt_expiry_timer);
 		state->ann_expired = false;
 		k_timer_start(&state->ann_rcpt_expiry_timer,
-			      gptp_uscaled_ns_to_timer_ms(
-				   &bmca_data->ann_rcpt_timeout_time_interval),
-			      0);
-		/* Fallthrough. */
+			      K_MSEC(gptp_uscaled_ns_to_timer_ms(
+				  &bmca_data->ann_rcpt_timeout_time_interval)),
+			      K_NO_WAIT);
+		__fallthrough;
 
 	case GPTP_PA_INFO_INFERIOR_MASTER_OR_OTHER_PORT:
 		if (bmca_data->rcvd_announce_ptr != NULL) {
@@ -1484,7 +1569,7 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 		}
 
 		bmca_data->rcvd_msg = false;
-		state->state = GPTP_PA_INFO_CURRENT;
+		gptp_change_pa_info_state(port, state, GPTP_PA_INFO_CURRENT);
 		break;
 	}
 }
@@ -1616,16 +1701,22 @@ static int compute_best_vector(void)
 	}
 
 	if (best_port != 0) {
-		memcpy(&global_ds->gm_priority.root_system_id,
-		       &best_vector->root_system_id,
-		       sizeof(struct gptp_root_system_identity));
+		if (&global_ds->gm_priority.root_system_id !=
+		    &best_vector->root_system_id) {
+			memcpy(&global_ds->gm_priority.root_system_id,
+			       &best_vector->root_system_id,
+			       sizeof(struct gptp_root_system_identity));
+		}
 
 		global_ds->gm_priority.steps_removed =
 			htons(ntohs(best_vector->steps_removed) + 1);
 
-		memcpy(&global_ds->gm_priority.src_port_id,
-		       &best_vector->src_port_id,
-		       sizeof(struct gptp_port_identity));
+		if (&global_ds->gm_priority.src_port_id !=
+		    &best_vector->src_port_id) {
+			memcpy(&global_ds->gm_priority.src_port_id,
+			       &best_vector->src_port_id,
+			       sizeof(struct gptp_port_identity));
+		}
 
 		global_ds->gm_priority.port_number = best_vector->port_number;
 	}
@@ -1770,7 +1861,7 @@ static void gptp_updt_roles_tree(void)
 
 	/* Update gmPresent. */
 	global_ds->gm_present =
-		(gm_prio->root_system_id.grand_master_prio1 == 255) ?
+		(gm_prio->root_system_id.grand_master_prio1 == 255U) ?
 		false : true;
 
 	/* Assign the port role for port 0. */
@@ -1813,7 +1904,7 @@ static void gptp_mi_port_role_selection_state_machine(void)
 
 		/* Be sure to enter the "if" statement immediately after. */
 		GPTP_GLOBAL_DS()->reselect_array = ~0;
-		/* Fallthrough. */
+		__fallthrough;
 
 	case GPTP_PR_SELECTION_ROLE_SELECTION:
 		if (GPTP_GLOBAL_DS()->reselect_array != 0) {
@@ -1858,18 +1949,18 @@ static void gptp_mi_port_announce_transmit_state_machine(int port)
 	switch (state->state) {
 	case GPTP_PA_TRANSMIT_INIT:
 		bmca_data->new_info = true;
-		/* Fallthrough. */
+		__fallthrough;
 
 	case GPTP_PA_TRANSMIT_IDLE:
 		k_timer_stop(&state->ann_send_periodic_timer);
 		state->ann_trigger = false;
 		k_timer_start(&state->ann_send_periodic_timer,
-			      gptp_uscaled_ns_to_timer_ms(
-				      &bmca_data->announce_interval),
-			      0);
+			      K_MSEC(gptp_uscaled_ns_to_timer_ms(
+					     &bmca_data->announce_interval)),
+			      K_NO_WAIT);
 
 		state->state = GPTP_PA_TRANSMIT_POST_IDLE;
-		/* Fallthrough. */
+		__fallthrough;
 
 	case GPTP_PA_TRANSMIT_POST_IDLE:
 		if (IS_SELECTED(global_ds, port) &&

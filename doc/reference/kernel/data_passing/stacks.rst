@@ -5,7 +5,7 @@ Stacks
 
 A :dfn:`stack` is a kernel object that implements a traditional
 last in, first out (LIFO) queue, allowing threads and ISRs
-to add and remove a limited number of 32-bit data values.
+to add and remove a limited number of integer data values.
 
 .. contents::
     :local:
@@ -14,14 +14,16 @@ to add and remove a limited number of 32-bit data values.
 Concepts
 ********
 
-Any number of stacks can be defined. Each stack is referenced
-by its memory address.
+Any number of stacks can be defined (limited only by available RAM). Each stack
+is referenced by its memory address.
 
 A stack has the following key properties:
 
-* A **queue** of 32-bit data values that have been added but not yet removed.
-  The queue is implemented using an array of 32-bit integers,
-  and must be aligned on a 4-byte boundary.
+* A **queue** of integer data values that have been added but not yet removed.
+  The queue is implemented using an array of stack_data_t values
+  and must be aligned on a native word boundary.
+  The stack_data_t type corresponds to the native word size i.e. 32 bits or
+  64 bits depending on the CPU architecture and compilation mode.
 
 * A **maximum quantity** of data values that can be queued in the array.
 
@@ -29,7 +31,7 @@ A stack must be initialized before it can be used. This sets its queue to empty.
 
 A data value can be **added** to a stack by a thread or an ISR.
 The value is given directly to a waiting thread, if one exists;
-otherwise the value is added to the lifo's queue.
+otherwise the value is added to the LIFO's queue.
 The kernel does *not* detect attempts to add a data value to a stack
 that has already reached its maximum quantity of queued values.
 
@@ -53,20 +55,20 @@ Implementation
 Defining a Stack
 ================
 
-A stack is defined using a variable of type :c:type:`struct k_stack`.
-It must then be initialized by calling :cpp:func:`k_stack_init()` or
-:cpp:func:`k_stack_alloc_init()`. In the latter case, a buffer is not
+A stack is defined using a variable of type :c:struct:`k_stack`.
+It must then be initialized by calling :c:func:`k_stack_init` or
+:c:func:`k_stack_alloc_init`. In the latter case, a buffer is not
 provided and it is instead allocated from the calling thread's resource
 pool.
 
 The following code defines and initializes an empty stack capable of holding
-up to ten 32-bit data values.
+up to ten word-sized data values.
 
 .. code-block:: c
 
     #define MAX_ITEMS 10
 
-    u32_t my_stack_array[MAX_ITEMS];
+    stack_data_t my_stack_array[MAX_ITEMS];
     struct k_stack my_stack;
 
     k_stack_init(&my_stack, my_stack_array, MAX_ITEMS);
@@ -84,7 +86,7 @@ that the macro defines both the stack and its array of data values.
 Pushing to a Stack
 ==================
 
-A data item is added to a stack by calling :cpp:func:`k_stack_push()`.
+A data item is added to a stack by calling :c:func:`k_stack_push`.
 
 The following code builds on the example above, and shows how a thread
 can create a pool of data structures by saving their memory addresses
@@ -101,13 +103,13 @@ in a stack.
 
     /* save address of each data structure in a stack */
     for (int i = 0; i < MAX_ITEMS; i++) {
-        k_stack_push(&my_stack, (u32_t)&my_buffers[i]);
+        k_stack_push(&my_stack, (stack_data_t)&my_buffers[i]);
     }
 
 Popping from a Stack
 ====================
 
-A data item is taken from a stack by calling :cpp:func:`k_stack_pop()`.
+A data item is taken from a stack by calling :c:func:`k_stack_pop`.
 
 The following code builds on the example above, and shows how a thread
 can dynamically allocate an unused data structure.
@@ -118,13 +120,13 @@ its address back on the stack to allow the data structure to be reused.
 
     struct my_buffer_type *new_buffer;
 
-    k_stack_pop(&buffer_stack, (u32_t *)&new_buffer, K_FOREVER);
+    k_stack_pop(&buffer_stack, (stack_data_t *)&new_buffer, K_FOREVER);
     new_buffer->field1 = ...
 
 Suggested Uses
 **************
 
-Use a stack to store and retrieve 32-bit data values in a "last in,
+Use a stack to store and retrieve integer data values in a "last in,
 first out" manner, when the maximum number of stored items is known.
 
 Configuration Options
@@ -139,4 +141,3 @@ API Reference
 
 .. doxygengroup:: stack_apis
    :project: Zephyr
-

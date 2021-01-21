@@ -16,31 +16,41 @@
 #define ZEPHYR_INCLUDE_LINKER_LINKER_TOOL_GCC_H_
 
 #if defined(CONFIG_ARM)
-#if defined(CONFIG_BIG_ENDIAN)
-#define OUTPUT_FORMAT_ "elf32-bigarm"
-#else
-#define OUTPUT_FORMAT_ "elf32-littlearm"
-#endif
+	#if defined(CONFIG_ARM64)
+		#define OUTPUT_FORMAT_ "elf64-littleaarch64"
+	#else
+		#if defined(CONFIG_BIG_ENDIAN)
+			#define OUTPUT_FORMAT_ "elf32-bigarm"
+		#else
+			#define OUTPUT_FORMAT_ "elf32-littlearm"
+		#endif
+	#endif
 	OUTPUT_FORMAT(OUTPUT_FORMAT_)
 #elif defined(CONFIG_ARC)
 	OUTPUT_FORMAT("elf32-littlearc", "elf32-bigarc", "elf32-littlearc")
 #elif defined(CONFIG_X86)
-	#if  defined(__IAMCU)
-		OUTPUT_FORMAT("elf32-iamcu")
-		OUTPUT_ARCH("iamcu:intel")
+	#if defined(CONFIG_X86_64)
+		OUTPUT_FORMAT("elf64-x86-64")
+		OUTPUT_ARCH("i386:x86-64")
 	#else
 		OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
 		OUTPUT_ARCH("i386")
 	#endif
 #elif defined(CONFIG_NIOS2)
 	OUTPUT_FORMAT("elf32-littlenios2", "elf32-bignios2", "elf32-littlenios2")
-#elif defined(CONFIG_RISCV32)
+#elif defined(CONFIG_RISCV)
 	OUTPUT_ARCH("riscv")
+#ifdef CONFIG_64BIT
+	OUTPUT_FORMAT("elf64-littleriscv")
+#else
 	OUTPUT_FORMAT("elf32-littleriscv")
+#endif
 #elif defined(CONFIG_XTENSA)
 	/* Not needed */
 #elif defined(CONFIG_ARCH_POSIX)
 	/* Not needed */
+#elif defined(CONFIG_SPARC)
+	OUTPUT_FORMAT("elf32-sparc")
 #else
 	#error Arch not supported.
 #endif

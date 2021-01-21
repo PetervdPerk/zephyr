@@ -4,6 +4,7 @@
 # https://github.com/otcshare/contiki-x86
 
 set -e
+unset CFLAGS
 
 JOBS=5
 SCRIPT_DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
@@ -15,13 +16,15 @@ fi
 
 TARGET_ARCH=$1
 
+export PYTHON=python3
+
 prepare() {
   if [[ ! -d ./src ]]; then
     git clone http://git.savannah.gnu.org/r/grub.git src
   fi
 
   pushd src
-  git checkout grub-2.02-285-g5bc41db75
+  git checkout grub-2.04
   git clean -fdx
   popd
 }
@@ -31,7 +34,7 @@ build() {
 
   ./bootstrap
   ./autogen.sh
-  ./configure --with-platform=efi --target=${TARGET_ARCH}
+  ./configure --with-platform=efi --target=${TARGET_ARCH} --disable-werror
 
   make -j${JOBS}
 

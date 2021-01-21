@@ -3,6 +3,12 @@
 Network Stack Architecture
 ##########################
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   net_pkt_processing_stats.rst
+
 The Zephyr network stack is a native network stack specifically designed
 for Zephyr OS. It consists of layers, each meant to provide certain services
 to other layers. Network stack functionality is highly configurable via Kconfig
@@ -16,7 +22,6 @@ High level overview of the network stack
 ****************************************
 
 .. figure:: zephyr_netstack_overview.svg
-    :align: left
     :alt: Overview of the network stack architecture
     :figclass: align-center
 
@@ -54,7 +59,7 @@ The network stack is layered and consists of the following parts:
   See :ref:`L2 overview <net_l2_interface>` for more details.
   These network technologies include :ref:`Ethernet <ethernet_interface>`,
   :ref:`IEEE 802.15.4 <ieee802154_interface>`,
-  :ref:`Bluetooth <bluetooth_api>`, :ref:`CANBUS <can_interface>`, etc.
+  :ref:`Bluetooth <bluetooth_api>`, :ref:`CANBUS <can_api>`, etc.
   Some of these technologies support IPv6 header compression (6Lo),
   see `RFC 6282 <https://tools.ietf.org/html/rfc6282>`_ for details.
   For example `ARP <https://tools.ietf.org/html/rfc826>`_ for IPv4 is done by
@@ -62,11 +67,6 @@ The network stack is layered and consists of the following parts:
 
 * **Network Device Drivers.** The actual low-level device drivers handle the
   physical sending or receiving of network packets.
-
-.. raw:: html
-
-   <br style="clear:both;" />
-
 
 Network data flow
 *****************
@@ -76,12 +76,7 @@ that execute the application logic. When using the
 :ref:`BSD socket API <bsd_sockets_interface>`, the following things will
 happen.
 
-.. raw:: html
-
-   <br style="clear:both;" />
-
 .. figure:: zephyr_netstack_overview-rx_sequence.svg
-    :align: left
     :alt: Network RX data flow
     :figclass: align-center
 
@@ -122,12 +117,8 @@ Data receiving (RX)
    :ref:`BSD socket API <bsd_sockets_interface>` to create a socket
    that will receive the data.
 
-.. raw:: html
-
-   <br style="clear:both;" />
 
 .. figure:: zephyr_netstack_overview-tx_sequence.svg
-    :align: left
     :alt: Network TX data flow
     :figclass: align-center
 
@@ -165,13 +156,16 @@ Data sending (TX)
 
 7. The device driver will send the packet to the network.
 
-.. raw:: html
-
-   <br style="clear:both;" />
-
 Note that in both the TX and RX data paths, the queues
 (:ref:`k_fifo's <fifos_v2>`) form separation points where data is passed from
 one :ref:`thread <threads_v2>` to another.
 These :ref:`threads <threads_v2>` might run in different contexts
-(:ref:`kernel <kernel>` vs. :ref:`userspace <usermode>`) and with different
+(:ref:`kernel <kernel_api>` vs. :ref:`userspace <usermode_api>`) and with different
 :ref:`priorities <scheduling_v2>`.
+
+
+Network packet processing statistics
+************************************
+
+See information about network processing statistics
+:ref:`here <net_pkt_processing_stats>`.

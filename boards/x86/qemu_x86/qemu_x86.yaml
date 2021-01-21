@@ -6,8 +6,12 @@ arch: x86
 toolchain:
   - zephyr
   - xtools
+  - llvm
 supported:
   - pci
-  - netif:slip
+  - nvs
+  - netif:serial-net
+  - ieee802154
+  - eeprom
 testing:
   default: true

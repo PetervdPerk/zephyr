@@ -20,8 +20,8 @@
 #include <zephyr/types.h>
 #include <stdbool.h>
 #include <ztest.h>
-#include <json.h>
-#include <zephyr/jwt.h>
+#include <data/json.h>
+#include <data/jwt.h>
 
 #include <mbedtls/pk.h>
 #include <mbedtls/rsa.h>
@@ -64,4 +64,3 @@ void test_main(void)
 
 	ztest_run_test_suite(lib_jwt_test);
 }
-

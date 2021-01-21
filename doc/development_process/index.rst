@@ -10,7 +10,7 @@ Development Model
    release_process
    proposals
    code_flow
-   review_process
+   dev_env_and_tools
    issues
    api_lifecycle
    communication
@@ -27,5 +27,3 @@ Terminology
 - upstream: A parent branch the source code is based on. This is the branch you
   pull from and push to, basically your upstream.
 - LTS: Long Term Support
-
-

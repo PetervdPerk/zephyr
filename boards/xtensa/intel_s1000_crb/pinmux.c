@@ -6,7 +6,7 @@
 
 #include <kernel.h>
 #include <init.h>
-#include <pinmux.h>
+#include <drivers/pinmux.h>
 #include "iomux.h"
 
 /*
@@ -21,11 +21,11 @@
  * Please note that a call to pinmux_pin_set is only needed when a setting
  * that is not default is required
  */
-static int intel_s1000_pinmux_init(struct device *dev)
+static int intel_s1000_pinmux_init(const struct device *dev)
 {
-	struct device *pinmux;
+	const struct device *pinmux;
 
-	pinmux = device_get_binding(CONFIG_PINMUX_NAME);
+	pinmux = device_get_binding(DT_LABEL(DT_INST(0, intel_s1000_pinmux)));
 
 	if (pinmux == NULL) {
 		return -ENXIO;

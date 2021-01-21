@@ -11,8 +11,10 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
+#include <drivers/hwinfo.h>
 #include <zephyr.h>
-#include <gpio.h>
+#include <drivers/gpio.h>
+#include <drivers/sensor.h>
 #include <net/lwm2m.h>
 
 #define APP_BANNER "Run LWM2M client"
@@ -44,29 +46,35 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define CLIENT_DEVICE_TYPE	"OMA-LWM2M Client"
 #define CLIENT_HW_VER		"1.0.1"
 
+#define LIGHT_NAME		"Test light"
+#define TIMER_NAME		"Test timer"
+
 #define ENDPOINT_LEN		32
 
-#ifndef LED0_GPIO_CONTROLLER
-#ifdef LED0_GPIO_PORT
-#define LED0_GPIO_CONTROLLER 	LED0_GPIO_PORT
+#if DT_NODE_HAS_STATUS(DT_ALIAS(led0), okay)
+#define LED_GPIO_PORT	DT_GPIO_LABEL(DT_ALIAS(led0), gpios)
+#define LED_GPIO_PIN	DT_GPIO_PIN(DT_ALIAS(led0), gpios)
+#define LED_GPIO_FLAGS	DT_GPIO_FLAGS(DT_ALIAS(led0), gpios)
 #else
-#define LED0_GPIO_CONTROLLER "(fail)"
-#define LED0_GPIO_PIN 0
+/* Not an error; the relevant IPSO object will simply not be created. */
+#define LED_GPIO_PORT	""
+#define LED_GPIO_PIN	0
+#define LED_GPIO_FLAGS	0
 #endif
-#endif
 
-#define LED_GPIO_PORT LED0_GPIO_CONTROLLER
-#define LED_GPIO_PIN LED0_GPIO_PIN
+static uint8_t bat_idx = LWM2M_DEVICE_PWR_SRC_TYPE_BAT_INT;
+static int bat_mv = 3800;
+static int bat_ma = 125;
+static uint8_t usb_idx = LWM2M_DEVICE_PWR_SRC_TYPE_USB;
+static int usb_mv = 5000;
+static int usb_ma = 900;
+static uint8_t bat_level = 95;
+static uint8_t bat_status = LWM2M_DEVICE_BATTERY_STATUS_CHARGING;
+static int mem_free = 15;
+static int mem_total = 25;
 
-static int pwrsrc_bat;
-static int pwrsrc_usb;
-static int battery_voltage = 3800;
-static int battery_current = 125;
-static int usb_voltage = 5000;
-static int usb_current = 900;
-
-static struct device *led_dev;
-static u32_t led_state;
+static const struct device *led_dev;
+static uint32_t led_state;
 
 static struct lwm2m_ctx client;
 
@@ -85,19 +93,20 @@ static const char client_psk_id[] = "Client_identity";
 static struct k_sem quit_lock;
 
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_OBJ_SUPPORT)
-static u8_t firmware_buf[64];
+static uint8_t firmware_buf[64];
 #endif
 
 /* TODO: Move to a pre write hook that can handle ret codes once available */
-static int led_on_off_cb(u16_t obj_inst_id, u8_t *data, u16_t data_len,
+static int led_on_off_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
+			 uint8_t *data, uint16_t data_len,
 			 bool last_block, size_t total_size)
 {
 	int ret = 0;
-	u32_t led_val;
+	uint32_t led_val;
 
-	led_val = *(u8_t *) data;
+	led_val = *(uint8_t *) data;
 	if (led_val != led_state) {
-		ret = gpio_pin_write(led_dev, LED_GPIO_PIN, led_val);
+		ret = gpio_pin_set(led_dev, LED_GPIO_PIN, (int) led_val);
 		if (ret) {
 			/*
 			 * We need an extra hook in LWM2M to better handle
@@ -126,12 +135,8 @@ static int init_led_device(void)
 		return -ENODEV;
 	}
 
-	ret = gpio_pin_configure(led_dev, LED_GPIO_PIN, GPIO_DIR_OUT);
-	if (ret) {
-		return ret;
-	}
-
-	ret = gpio_pin_write(led_dev, LED_GPIO_PIN, 0);
+	ret = gpio_pin_configure(led_dev, LED_GPIO_PIN, LED_GPIO_FLAGS |
+							GPIO_OUTPUT_INACTIVE);
 	if (ret) {
 		return ret;
 	}
@@ -139,30 +144,33 @@ static int init_led_device(void)
 	return 0;
 }
 
-static int device_reboot_cb(u16_t obj_inst_id)
+static int device_reboot_cb(uint16_t obj_inst_id,
+			    uint8_t *args, uint16_t args_len)
 {
 	LOG_INF("DEVICE: REBOOT");
 	/* Add an error for testing */
 	lwm2m_device_add_err(LWM2M_DEVICE_ERROR_LOW_POWER);
 	/* Change the battery voltage for testing */
-	lwm2m_device_set_pwrsrc_voltage_mv(pwrsrc_bat, --battery_voltage);
+	lwm2m_engine_set_s32("3/0/7/0", (bat_mv - 1));
 
 	return 0;
 }
 
-static int device_factory_default_cb(u16_t obj_inst_id)
+static int device_factory_default_cb(uint16_t obj_inst_id,
+				     uint8_t *args, uint16_t args_len)
 {
 	LOG_INF("DEVICE: FACTORY DEFAULT");
 	/* Add an error for testing */
 	lwm2m_device_add_err(LWM2M_DEVICE_ERROR_GPS_FAILURE);
 	/* Change the USB current for testing */
-	lwm2m_device_set_pwrsrc_current_ma(pwrsrc_usb, --usb_current);
+	lwm2m_engine_set_s32("3/0/8/1", (usb_ma - 1));
 
 	return 0;
 }
 
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT)
-static int firmware_update_cb(u16_t obj_inst_id)
+static int firmware_update_cb(uint16_t obj_inst_id,
+			      uint8_t *args, uint16_t args_len)
 {
 	LOG_DBG("UPDATE");
 
@@ -177,15 +185,46 @@ static int firmware_update_cb(u16_t obj_inst_id)
 }
 #endif
 
+
+static void *temperature_get_buf(uint16_t obj_inst_id, uint16_t res_id,
+				 uint16_t res_inst_id, size_t *data_len)
+{
+	/* Last read temperature value, will use 25.5C if no sensor available */
+	static struct float32_value v = { 25, 500000 };
+	const struct device *dev = NULL;
+
+#if defined(CONFIG_FXOS8700_TEMP)
+	dev = device_get_binding(DT_LABEL(DT_INST(0, nxp_fxos8700)));
+#endif
+
+	if (dev != NULL) {
+		if (sensor_sample_fetch(dev)) {
+			LOG_ERR("temperature data update failed");
+		}
+
+		sensor_channel_get(dev, SENSOR_CHAN_DIE_TEMP,
+				  (struct sensor_value *) &v);
+		LOG_DBG("LWM2M temperature set to %d.%d", v.val1, v.val2);
+	}
+
+	/* echo the value back through the engine to update min/max values */
+	lwm2m_engine_set_float32("3303/0/5700", &v);
+	*data_len = sizeof(v);
+	return &v;
+}
+
+
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_OBJ_SUPPORT)
-static void *firmware_get_buf(u16_t obj_inst_id, size_t *data_len)
+static void *firmware_get_buf(uint16_t obj_inst_id, uint16_t res_id,
+			      uint16_t res_inst_id, size_t *data_len)
 {
 	*data_len = sizeof(firmware_buf);
 	return firmware_buf;
 }
 
-static int firmware_block_received_cb(u16_t obj_inst_id,
-				      u8_t *data, u16_t data_len,
+static int firmware_block_received_cb(uint16_t obj_inst_id,
+				      uint16_t res_id, uint16_t res_inst_id,
+				      uint8_t *data, uint16_t data_len,
 				      bool last_block, size_t total_size)
 {
 	LOG_INF("FIRMWARE: BLOCK RECEIVED: len:%u last_block:%d",
@@ -194,8 +233,9 @@ static int firmware_block_received_cb(u16_t obj_inst_id,
 }
 #endif
 
-static int timer_digital_state_cb(u16_t obj_inst_id,
-				  u8_t *data, u16_t data_len,
+static int timer_digital_state_cb(uint16_t obj_inst_id,
+				  uint16_t res_id, uint16_t res_inst_id,
+				  uint8_t *data, uint16_t data_len,
 				  bool last_block, size_t total_size)
 {
 	bool *digital_state = (bool *)data;
@@ -211,11 +251,10 @@ static int timer_digital_state_cb(u16_t obj_inst_id,
 
 static int lwm2m_setup(void)
 {
-	struct float32_value float_value;
 	int ret;
 	char *server_url;
-	u16_t server_url_len;
-	u8_t server_url_flags;
+	uint16_t server_url_len;
+	uint8_t server_url_flags;
 
 	/* setup SECURITY object */
 
@@ -241,6 +280,20 @@ static int lwm2m_setup(void)
 				(void *)client_psk, sizeof(client_psk));
 #endif /* CONFIG_LWM2M_DTLS_SUPPORT */
 
+#if defined(CONFIG_LWM2M_RD_CLIENT_SUPPORT_BOOTSTRAP)
+	/* Mark 1st instance of security object as a bootstrap server */
+	lwm2m_engine_set_u8("0/0/1", 1);
+
+	/* Create 2nd instance of security object needed for bootstrap */
+	lwm2m_engine_create_obj_inst("0/1");
+#else
+	/* Match Security object instance with a Server object instance with
+	 * Short Server ID.
+	 */
+	lwm2m_engine_set_u16("0/0/10", 101);
+	lwm2m_engine_set_u16("1/0/0", 101);
+#endif
+
 	/* setup SERVER object */
 
 	/* setup DEVICE object */
@@ -259,34 +312,31 @@ static int lwm2m_setup(void)
 				  LWM2M_RES_DATA_FLAG_RO);
 	lwm2m_engine_register_exec_callback("3/0/4", device_reboot_cb);
 	lwm2m_engine_register_exec_callback("3/0/5", device_factory_default_cb);
-	lwm2m_engine_set_u8("3/0/9", 95); /* battery level */
-	lwm2m_engine_set_u32("3/0/10", 15); /* mem free */
+	lwm2m_engine_set_res_data("3/0/9", &bat_level, sizeof(bat_level), 0);
+	lwm2m_engine_set_res_data("3/0/10", &mem_free, sizeof(mem_free), 0);
 	lwm2m_engine_set_res_data("3/0/17", CLIENT_DEVICE_TYPE,
 				  sizeof(CLIENT_DEVICE_TYPE),
 				  LWM2M_RES_DATA_FLAG_RO);
 	lwm2m_engine_set_res_data("3/0/18", CLIENT_HW_VER,
 				  sizeof(CLIENT_HW_VER),
 				  LWM2M_RES_DATA_FLAG_RO);
-	lwm2m_engine_set_u8("3/0/20", LWM2M_DEVICE_BATTERY_STATUS_CHARGING);
-	lwm2m_engine_set_u32("3/0/21", 25); /* mem total */
+	lwm2m_engine_set_res_data("3/0/20", &bat_status, sizeof(bat_status), 0);
+	lwm2m_engine_set_res_data("3/0/21", &mem_total, sizeof(mem_total), 0);
 
-	pwrsrc_bat = lwm2m_device_add_pwrsrc(LWM2M_DEVICE_PWR_SRC_TYPE_BAT_INT);
-	if (pwrsrc_bat < 0) {
-		LOG_ERR("LWM2M battery power source enable error (err:%d)",
-			pwrsrc_bat);
-		return pwrsrc_bat;
-	}
-	lwm2m_device_set_pwrsrc_voltage_mv(pwrsrc_bat, battery_voltage);
-	lwm2m_device_set_pwrsrc_current_ma(pwrsrc_bat, battery_current);
+	/* add power source resource instances */
+	lwm2m_engine_create_res_inst("3/0/6/0");
+	lwm2m_engine_set_res_data("3/0/6/0", &bat_idx, sizeof(bat_idx), 0);
 
-	pwrsrc_usb = lwm2m_device_add_pwrsrc(LWM2M_DEVICE_PWR_SRC_TYPE_USB);
-	if (pwrsrc_usb < 0) {
-		LOG_ERR("LWM2M usb power source enable error (err:%d)",
-			pwrsrc_usb);
-		return pwrsrc_usb;
-	}
-	lwm2m_device_set_pwrsrc_voltage_mv(pwrsrc_usb, usb_voltage);
-	lwm2m_device_set_pwrsrc_current_ma(pwrsrc_usb, usb_current);
+	lwm2m_engine_create_res_inst("3/0/7/0");
+	lwm2m_engine_set_res_data("3/0/7/0", &bat_mv, sizeof(bat_mv), 0);
+	lwm2m_engine_create_res_inst("3/0/8/0");
+	lwm2m_engine_set_res_data("3/0/8/0", &bat_ma, sizeof(bat_ma), 0);
+	lwm2m_engine_create_res_inst("3/0/6/1");
+	lwm2m_engine_set_res_data("3/0/6/1", &usb_idx, sizeof(usb_idx), 0);
+	lwm2m_engine_create_res_inst("3/0/7/1");
+	lwm2m_engine_set_res_data("3/0/7/1", &usb_mv, sizeof(usb_mv), 0);
+	lwm2m_engine_create_res_inst("3/0/8/1");
+	lwm2m_engine_set_res_data("3/0/8/1", &usb_ma, sizeof(usb_ma), 0);
 
 	/* setup FIRMWARE object */
 
@@ -300,25 +350,25 @@ static int lwm2m_setup(void)
 #endif
 
 	/* setup TEMP SENSOR object */
-
 	lwm2m_engine_create_obj_inst("3303/0");
-	/* dummy temp data in C: 25.5*/
-	float_value.val1 = 25;
-	float_value.val2 = 500000;
-	lwm2m_engine_set_float32("3303/0/5700", &float_value);
+	lwm2m_engine_register_read_callback("3303/0/5700", temperature_get_buf);
 
 	/* IPSO: Light Control object */
 	if (init_led_device() == 0) {
 		lwm2m_engine_create_obj_inst("3311/0");
 		lwm2m_engine_register_post_write_callback("3311/0/5850",
 				led_on_off_cb);
+		lwm2m_engine_set_res_data("3311/0/5750",
+					  LIGHT_NAME, sizeof(LIGHT_NAME),
+					  LWM2M_RES_DATA_FLAG_RO);
 	}
 
 	/* IPSO: Timer object */
 	lwm2m_engine_create_obj_inst("3340/0");
 	lwm2m_engine_register_post_write_callback("3340/0/5543",
 			timer_digital_state_cb);
-	lwm2m_engine_set_string("3340/0/5750", "Test timer");
+	lwm2m_engine_set_res_data("3340/0/5750", TIMER_NAME, sizeof(TIMER_NAME),
+				  LWM2M_RES_DATA_FLAG_RO);
 
 	return 0;
 }
@@ -368,11 +418,21 @@ static void rd_client_event(struct lwm2m_ctx *client,
 		LOG_DBG("Disconnected");
 		break;
 
+	case LWM2M_RD_CLIENT_EVENT_QUEUE_MODE_RX_OFF:
+		LOG_DBG("Queue mode RX window closed");
+		break;
+
+	case LWM2M_RD_CLIENT_EVENT_NETWORK_ERROR:
+		LOG_ERR("LwM2M engine reported a network erorr.");
+		lwm2m_rd_client_stop(client, rd_client_event);
+		break;
 	}
 }
 
 void main(void)
 {
+	uint32_t flags = IS_ENABLED(CONFIG_LWM2M_RD_CLIENT_SUPPORT_BOOTSTRAP) ?
+				LWM2M_RD_CLIENT_FLAG_BOOTSTRAP : 0;
 	int ret;
 
 	LOG_INF(APP_BANNER);
@@ -390,7 +450,32 @@ void main(void)
 	client.tls_tag = TLS_TAG;
 #endif
 
+#if defined(CONFIG_HWINFO)
+	uint8_t dev_id[16];
+	char dev_str[33];
+	ssize_t length;
+	int i;
+
+	(void)memset(dev_id, 0x0, sizeof(dev_id));
+
+	/* Obtain the device id */
+	length = hwinfo_get_device_id(dev_id, sizeof(dev_id));
+
+	/* If this fails for some reason, use all zeros instead */
+	if (length <= 0) {
+		length = sizeof(dev_id);
+	}
+
+	/* Render the obtained serial number in hexadecimal representation */
+	for (i = 0 ; i < length ; i++) {
+		sprintf(&dev_str[i*2], "%02x", dev_id[i]);
+	}
+
+	lwm2m_rd_client_start(&client, dev_str, flags, rd_client_event);
+#else
 	/* client.sec_obj_inst is 0 as a starting point */
-	lwm2m_rd_client_start(&client, CONFIG_BOARD, rd_client_event);
+	lwm2m_rd_client_start(&client, CONFIG_BOARD, flags, rd_client_event);
+#endif
+
 	k_sem_take(&quit_lock, K_FOREVER);
 }

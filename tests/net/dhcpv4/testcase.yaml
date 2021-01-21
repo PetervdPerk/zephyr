@@ -1,6 +1,10 @@
 common:
   depends_on: netif
-  platform_whitelist: native_posix qemu_x86 qemu_cortex_m3
+  tags: net dhcpv4
 tests:
   net.dhcp:
-    tags: net dhcpv4
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.dhcp.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

@@ -8,13 +8,15 @@
 #ifndef ZEPHYR_DRIVERS_I2C_I2C_DW_H_
 #define ZEPHYR_DRIVERS_I2C_I2C_DW_H_
 
-#include <i2c.h>
+#include <drivers/i2c.h>
 #include <stdbool.h>
 
-#ifdef CONFIG_PCI
-#include <pci/pci.h>
-#include <pci/pci_mgr.h>
-#endif /* CONFIG_PCI */
+#define DT_DRV_COMPAT snps_designware_i2c
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
+BUILD_ASSERT(IS_ENABLED(CONFIG_PCIE), "DW I2C in DT needs CONFIG_PCIE");
+#include <drivers/pcie/pcie.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,7 +25,7 @@ extern "C" {
 #define I2C_DW_MAGIC_KEY			0x44570140
 
 
-typedef void (*i2c_isr_cb_t)(struct device *port);
+typedef void (*i2c_isr_cb_t)(const struct device *port);
 
 
 #define IC_ACTIVITY                     (1 << 0)
@@ -85,36 +87,33 @@ typedef void (*i2c_isr_cb_t)(struct device *port);
 
 
 struct i2c_dw_rom_config {
+	DEVICE_MMIO_ROM;
 	i2c_isr_cb_t	config_func;
-
-#ifdef CONFIG_I2C_DW_SHARED_IRQ
-	char *shared_irq_dev_name;
-#endif /* CONFIG_I2C_DW_SHARED_IRQ */
-
-	u32_t bitrate;
+	uint32_t		bitrate;
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
+	bool		pcie;
+	pcie_bdf_t	pcie_bdf;
+	pcie_id_t	pcie_id;
+#endif /* I2C_DW_PCIE_ENABLED */
 };
 
-
 struct i2c_dw_dev_config {
-	u32_t base_address;
+	DEVICE_MMIO_RAM;
 	struct k_sem		device_sync_sem;
-	u32_t app_config;
+	uint32_t app_config;
 
 
-	u8_t			*xfr_buf;
-	u32_t		xfr_len;
-	u32_t		rx_pending;
+	uint8_t			*xfr_buf;
+	uint32_t		xfr_len;
+	uint32_t		rx_pending;
 
-	u16_t		hcnt;
-	u16_t		lcnt;
+	uint16_t		hcnt;
+	uint16_t		lcnt;
 
-	volatile u8_t	state;  /* last direction of transfer */
-	u8_t			request_bytes;
-	u8_t			xfr_flags;
+	volatile uint8_t	state;  /* last direction of transfer */
+	uint8_t			request_bytes;
+	uint8_t			xfr_flags;
 	bool			support_hs_mode;
-#ifdef CONFIG_PCI
-	struct pci_dev_info pci_dev;
-#endif /* CONFIG_PCI */
 };
 
 #ifdef __cplusplus

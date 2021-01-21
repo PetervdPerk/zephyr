@@ -22,29 +22,31 @@
 	};
 
 	chosen {
-		zephyr,sram = &ddr0;
+		zephyr,sram = &dccm0;
 		zephyr,console = &uart1;
 		zephyr,shell-uart = &uart1;
 	};
 
-	iccm@0 {
+	iccm0: iccm@0 {
+		compatible = "arc,iccm";
 		reg = <0x0 DT_SIZE_K(256)>;
 	};
 
-	dccm@80000000 {
+	dccm0: dccm@80000000 {
+		compatible = "arc,dccm";
 		reg = <0x80000000 DT_SIZE_K(128)>;
 	};
 };
 
 &uart1 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };
 
 &spi0 {
-	status = "ok";
+	status = "okay";
 };
 
 &spi1 {
-	status = "ok";
+	status = "okay";
 };

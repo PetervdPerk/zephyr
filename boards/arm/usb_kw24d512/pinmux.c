@@ -5,31 +5,35 @@
  */
 
 #include <init.h>
-#include <pinmux.h>
+#include <drivers/pinmux.h>
 #include <fsl_port.h>
 
-static int usb_kw24d512_pinmux_init(struct device *dev)
+static int usb_kw24d512_pinmux_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-#ifdef CONFIG_PINMUX_MCUX_PORTA
-	struct device *porta =
-		device_get_binding(CONFIG_PINMUX_MCUX_PORTA_NAME);
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(porta), okay)
+	__unused const struct device *porta =
+		device_get_binding(DT_LABEL(DT_NODELABEL(porta)));
 #endif
-#ifdef CONFIG_PINMUX_MCUX_PORTB
-	struct device *portb =
-		device_get_binding(CONFIG_PINMUX_MCUX_PORTB_NAME);
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(portb), okay)
+	__unused const struct device *portb =
+		device_get_binding(DT_LABEL(DT_NODELABEL(portb)));
 #endif
-#ifdef CONFIG_PINMUX_MCUX_PORTC
-	struct device *portc =
-		device_get_binding(CONFIG_PINMUX_MCUX_PORTC_NAME);
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(portc), okay)
+	__unused const struct device *portc =
+		device_get_binding(DT_LABEL(DT_NODELABEL(portc)));
 #endif
-#ifdef CONFIG_PINMUX_MCUX_PORTD
-	struct device *portd =
-		device_get_binding(CONFIG_PINMUX_MCUX_PORTD_NAME);
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(portd), okay)
+	__unused const struct device *portd =
+		device_get_binding(DT_LABEL(DT_NODELABEL(portd)));
+#endif
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(porte), okay)
+	__unused const struct device *porte =
+		device_get_binding(DT_LABEL(DT_NODELABEL(porte)));
 #endif
 
-#ifdef CONFIG_UART_MCUX_0
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(uart0), okay) && CONFIG_SERIAL
 	/* UART0 RX, TX */
 	pinmux_pin_set(porta, 1, PORT_PCR_MUX(kPORT_MuxAlt2));
 	pinmux_pin_set(porta, 2, PORT_PCR_MUX(kPORT_MuxAlt2));
@@ -42,7 +46,7 @@ static int usb_kw24d512_pinmux_init(struct device *dev)
 	pinmux_pin_set(portd, 4, PORT_PCR_MUX(kPORT_MuxAsGpio));
 	pinmux_pin_set(portd, 5, PORT_PCR_MUX(kPORT_MuxAsGpio));
 
-#ifdef CONFIG_SPI_1
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(spi1), okay) && CONFIG_SPI
 	/* SPI1 CS0, SCK, SOUT, SIN */
 	pinmux_pin_set(portb, 10, PORT_PCR_MUX(kPORT_MuxAlt2));
 	pinmux_pin_set(portb, 11, PORT_PCR_MUX(kPORT_MuxAlt2));

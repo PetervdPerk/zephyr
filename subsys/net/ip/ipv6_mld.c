@@ -38,21 +38,21 @@ LOG_MODULE_DECLARE(net_ipv6, CONFIG_NET_IPV6_LOG_LEVEL);
 
 static int mld_create(struct net_pkt *pkt,
 		      const struct in6_addr *addr,
-		      u8_t record_type,
-		      u16_t num_sources)
+		      uint8_t record_type,
+		      uint16_t num_sources)
 {
 	NET_PKT_DATA_ACCESS_DEFINE(mld_access,
 				   struct net_icmpv6_mld_mcast_record);
 	struct net_icmpv6_mld_mcast_record *mld;
 
 	mld = (struct net_icmpv6_mld_mcast_record *)
-				net_pkt_get_data_new(pkt, &mld_access);
+				net_pkt_get_data(pkt, &mld_access);
 	if (!mld) {
 		return -ENOBUFS;
 	}
 
 	mld->record_type = record_type;
-	mld->aux_data_len = 0;
+	mld->aux_data_len = 0U;
 	mld->num_sources = htons(num_sources);
 
 	net_ipaddr_copy(&mld->mcast_address, addr);
@@ -63,9 +63,9 @@ static int mld_create(struct net_pkt *pkt,
 
 	if (num_sources > 0) {
 		/* All source addresses, RFC 3810 ch 3 */
-		if (net_pkt_write_new(pkt,
-				      net_ipv6_unspecified_address()->s6_addr,
-				      sizeof(struct in6_addr))) {
+		if (net_pkt_write(pkt,
+				  net_ipv6_unspecified_address()->s6_addr,
+				  sizeof(struct in6_addr))) {
 			return -ENOBUFS;
 		}
 	}
@@ -73,7 +73,7 @@ static int mld_create(struct net_pkt *pkt,
 	return 0;
 }
 
-static int mld_create_packet(struct net_pkt *pkt, u16_t count)
+static int mld_create_packet(struct net_pkt *pkt, uint16_t count)
 {
 	struct in6_addr dst;
 
@@ -82,16 +82,15 @@ static int mld_create_packet(struct net_pkt *pkt, u16_t count)
 
 	net_pkt_set_ipv6_hop_limit(pkt, 1); /* RFC 3810 ch 7.4 */
 
-	if (net_ipv6_create_new(pkt,
-				net_if_ipv6_select_src_addr(
-					net_pkt_iface(pkt), &dst),
-				 &dst)) {
+	if (net_ipv6_create(pkt, net_if_ipv6_select_src_addr(
+				    net_pkt_iface(pkt), &dst),
+			    &dst)) {
 		return -ENOBUFS;
 	}
 
 	/* Add hop-by-hop option and router alert option, RFC 3810 ch 5. */
-	if (net_pkt_write_u8_new(pkt, IPPROTO_ICMPV6) ||
-	    net_pkt_write_u8_new(pkt, 0)) {
+	if (net_pkt_write_u8(pkt, IPPROTO_ICMPV6) ||
+	    net_pkt_write_u8(pkt, 0)) {
 		return -ENOBUFS;
 	}
 
@@ -100,9 +99,9 @@ static int mld_create_packet(struct net_pkt *pkt, u16_t count)
 	 * - MLD (value 0)
 	 * - 2 bytes of padding
 	 */
-	if (net_pkt_write_be16_new(pkt, 0x0502) ||
-	    net_pkt_write_be16_new(pkt, 0) ||
-	    net_pkt_write_be16_new(pkt, 0)) {
+	if (net_pkt_write_be16(pkt, 0x0502) ||
+	    net_pkt_write_be16(pkt, 0) ||
+	    net_pkt_write_be16(pkt, 0)) {
 		return -ENOBUFS;
 	}
 
@@ -112,8 +111,8 @@ static int mld_create_packet(struct net_pkt *pkt, u16_t count)
 	 * MLDv6 stuff will come right after
 	 */
 	if (net_icmpv6_create(pkt, NET_ICMPV6_MLDv2, 0) ||
-	    net_pkt_write_be16_new(pkt, 0) ||
-	    net_pkt_write_be16_new(pkt, count)) {
+	    net_pkt_write_be16(pkt, 0) ||
+	    net_pkt_write_be16(pkt, count)) {
 		return -ENOBUFS;
 	}
 
@@ -144,7 +143,7 @@ static int mld_send(struct net_pkt *pkt)
 
 static int mld_send_generic(struct net_if *iface,
 			    const struct in6_addr *addr,
-			    u8_t mode)
+			    uint8_t mode)
 {
 	struct net_pkt *pkt;
 	int ret;
@@ -204,14 +203,22 @@ int net_ipv6_mld_join(struct net_if *iface, const struct in6_addr *addr)
 
 	net_if_mcast_monitor(iface, addr, true);
 
-	net_mgmt_event_notify(NET_EVENT_IPV6_MCAST_JOIN, iface);
+	net_mgmt_event_notify_with_info(NET_EVENT_IPV6_MCAST_JOIN, iface,
+					&maddr->address.in6_addr,
+					sizeof(struct in6_addr));
 
 	return ret;
 }
 
 int net_ipv6_mld_leave(struct net_if *iface, const struct in6_addr *addr)
 {
+	struct net_if_mcast_addr *maddr;
 	int ret;
+
+	maddr = net_if_ipv6_maddr_lookup(addr, &iface);
+	if (!maddr) {
+		return -ENOENT;
+	}
 
 	if (!net_if_ipv6_maddr_rm(iface, addr)) {
 		return -EINVAL;
@@ -224,7 +231,9 @@ int net_ipv6_mld_leave(struct net_if *iface, const struct in6_addr *addr)
 
 	net_if_mcast_monitor(iface, addr, false);
 
-	net_mgmt_event_notify(NET_EVENT_IPV6_MCAST_LEAVE, iface);
+	net_mgmt_event_notify_with_info(NET_EVENT_IPV6_MCAST_LEAVE, iface,
+					&maddr->address.in6_addr,
+					sizeof(struct in6_addr));
 
 	return ret;
 }
@@ -293,12 +302,12 @@ static enum net_verdict handle_mld_query(struct net_pkt *pkt,
 {
 	NET_PKT_DATA_ACCESS_CONTIGUOUS_DEFINE(mld_access,
 					      struct net_icmpv6_mld_query);
-	u16_t length = net_pkt_get_len(pkt);
+	uint16_t length = net_pkt_get_len(pkt);
 	struct net_icmpv6_mld_query *mld_query;
-	u16_t pkt_len;
+	uint16_t pkt_len;
 
 	mld_query = (struct net_icmpv6_mld_query *)
-				net_pkt_get_data_new(pkt, &mld_access);
+				net_pkt_get_data(pkt, &mld_access);
 	if (!mld_query) {
 		NET_DBG("DROP: NULL MLD query");
 		goto drop;
@@ -318,7 +327,7 @@ static enum net_verdict handle_mld_query(struct net_pkt *pkt,
 		sizeof(struct in6_addr) * mld_query->num_sources;
 
 	if (length < pkt_len || pkt_len > NET_IPV6_MTU ||
-	    ip_hdr->hop_limit != 1 || icmp_hdr->code != 0) {
+	    ip_hdr->hop_limit != 1U || icmp_hdr->code != 0U) {
 		goto drop;
 	}
 

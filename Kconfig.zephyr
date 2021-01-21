@@ -1,44 +1,39 @@
-# Kconfig - general configuration options
+# General configuration options
 
-#
 # Copyright (c) 2014-2015 Wind River Systems, Inc.
 # Copyright (c) 2016 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
-source "$(PROJECT_BINARY_DIR)/Kconfig.modules"
 
-# Include these first so that any properties (e.g. defaults) below can be
-# overriden in *.defconfig files (by defining symbols in multiple locations).
-# After merging all the symbol definitions, Kconfig picks the first property
-# (e.g. the first default) with a satisfied condition.
+# Include Kconfig.defconfig files first so that they can override defaults and
+# other symbol/choice properties by adding extra symbol/choice definitions.
+# After merging all definitions for a symbol/choice, Kconfig picks the first
+# property (e.g. the first default) with a satisfied condition.
 #
-# Board defaults should be parsed before SoC defaults, because boards usually
-# overrides SoC values.
+# Shield defaults should have precedence over board defaults, which should have
+# precedence over SoC defaults, so include them in that order.
 #
-# Note: $ARCH and $BOARD_DIR might be glob patterns.
+# $ARCH and $BOARD_DIR will be glob patterns when building documentation.
+source "$(KCONFIG_BINARY_DIR)/Kconfig.shield.defconfig"
 source "$(BOARD_DIR)/Kconfig.defconfig"
+source "$(KCONFIG_BINARY_DIR)/Kconfig.soc.defconfig"
 
-source "$(SOC_DIR)/$(ARCH)/*/Kconfig.defconfig"
+menu "Modules"
+
+source "modules/Kconfig"
+
+endmenu
 
 source "boards/Kconfig"
-
-source "$(SOC_DIR)/Kconfig"
-
+source "soc/Kconfig"
 source "arch/Kconfig"
-
 source "kernel/Kconfig"
-
 source "dts/Kconfig"
-
 source "drivers/Kconfig"
-
 source "lib/Kconfig"
-
 source "subsys/Kconfig"
 
-source "ext/Kconfig"
+osource "$(TOOLCHAIN_KCONFIG_DIR)/Kconfig"
 
 menu "Build and Link Features"
 
@@ -57,7 +52,7 @@ config LINKER_ORPHAN_SECTION_PLACE
 config LINKER_ORPHAN_SECTION_WARN
 	bool "Warn"
 	help
-	  Linker places the orphan sections in ouput and issues
+	  Linker places the orphan sections in output and issues
 	  warning about those sections.
 
 config LINKER_ORPHAN_SECTION_ERROR
@@ -68,13 +63,13 @@ config LINKER_ORPHAN_SECTION_ERROR
 endchoice
 
 config CODE_DATA_RELOCATION
-       bool "Relocate code/data sections"
-       depends on ARM
-       help
+	bool "Relocate code/data sections"
+	depends on ARM
+	help
 	  When selected this will relocate .text, data and .bss sections from
 	  the specified files and places it in the required memory region. The
 	  files should be specified in the CMakeList.txt file with
-	  a cmake API zephyr_code_relocation().
+	  a cmake API zephyr_code_relocate().
 
 config HAS_FLASH_LOAD_OFFSET
 	bool
@@ -82,17 +77,24 @@ config HAS_FLASH_LOAD_OFFSET
 	  This option is selected by targets having a FLASH_LOAD_OFFSET
 	  and FLASH_LOAD_SIZE.
 
-config USE_CODE_PARTITION
-	bool "link into code-partition"
-	depends on HAS_FLASH_LOAD_OFFSET
+if HAS_FLASH_LOAD_OFFSET
+
+config USE_DT_CODE_PARTITION
+	bool "Link application into /chosen/zephyr,code-partition from devicetree"
 	help
-	  When selected application will be linked into chosen code-partition.
+	  When enabled, the application will be linked into the flash partition
+	  selected by the zephyr,code-partition property in /chosen in devicetree.
+	  When this is disabled, the flash load offset and size can be set manually
+	  below.
+
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_CODE_PARTITION := zephyr,code-partition
 
 config FLASH_LOAD_OFFSET
-	hex "Kernel load offset"
-	default $(dt_hex_val,DT_CODE_PARTITION_OFFSET) if USE_CODE_PARTITION
+	# Only user-configurable when USE_DT_CODE_PARTITION is disabled
+	hex "Kernel load offset" if !USE_DT_CODE_PARTITION
+	default $(dt_chosen_reg_addr_hex,$(DT_CHOSEN_Z_CODE_PARTITION)) if USE_DT_CODE_PARTITION
 	default 0
-	depends on HAS_FLASH_LOAD_OFFSET
 	help
 	  This option specifies the byte offset from the beginning of flash that
 	  the kernel should be loaded into. Changing this value from zero will
@@ -102,10 +104,10 @@ config FLASH_LOAD_OFFSET
 	  If unsure, leave at the default value 0.
 
 config FLASH_LOAD_SIZE
-	hex "Kernel load size"
-	default $(dt_hex_val,DT_CODE_PARTITION_SIZE) if USE_CODE_PARTITION
+	# Only user-configurable when USE_DT_CODE_PARTITION is disabled
+	hex "Kernel load size" if !USE_DT_CODE_PARTITION
+	default $(dt_chosen_reg_size_hex,$(DT_CHOSEN_Z_CODE_PARTITION)) if USE_DT_CODE_PARTITION
 	default 0
-	depends on HAS_FLASH_LOAD_OFFSET
 	help
 	  If non-zero, this option specifies the size, in bytes, of the flash
 	  area that the Zephyr image will be allowed to occupy.  If zero, the
@@ -114,15 +116,17 @@ config FLASH_LOAD_SIZE
 
 	  If unsure, leave at the default value 0.
 
-config TEXT_SECTION_OFFSET
+endif # HAS_FLASH_LOAD_OFFSET
+
+config ROM_START_OFFSET
 	hex
-	prompt "TEXT section offset" if !BOOTLOADER_MCUBOOT
+	prompt "ROM start offset" if !BOOTLOADER_MCUBOOT
 	default 0x200 if BOOTLOADER_MCUBOOT
 	default 0
 	help
 	  If the application is built for chain-loading by a bootloader this
 	  variable is required to be set to value that leaves sufficient
-	  space between the beginning of the image and the start of the .text
+	  space between the beginning of the image and the start of the first
 	  section to store an image header or any other metadata.
 	  In the particular case of the MCUboot bootloader this reserves enough
 	  space to store the image header, which should also meet vector table
@@ -149,46 +153,29 @@ config CUSTOM_LINKER_SCRIPT
 	  linker script and avoid having to change the script provided by
 	  Zephyr.
 
-config CUSTOM_RODATA_LD
-	bool "Include custom-rodata.ld"
-	help
-	  Include a customized linker script fragment for inserting additional
-	  data and linker directives into the rodata section.
-
-config CUSTOM_RWDATA_LD
-	bool "Include custom-rwdata.ld"
-	help
-	  Include a customized linker script fragment for inserting additional
-	  data and linker directives into the data section.
-
-config CUSTOM_SECTIONS_LD
-	bool "Include custom-sections.ld"
-	help
-	  Include a customized linker script fragment for inserting additional
-	  arbitrary sections.
-
-config LINK_WHOLE_ARCHIVE
-	bool "Allow linking with --whole-archive"
-	help
-	  This options allows linking external libraries with the
-	  --whole-archive option to keep all symbols.
-
 config KERNEL_ENTRY
 	string "Kernel entry symbol"
 	default "__start"
 	help
 	  Code entry symbol, to be set at linking phase.
 
-config CHECK_LINK_MAP
-	bool "Check linker map"
+config LINKER_SORT_BY_ALIGNMENT
+	bool "Sort input sections by alignment"
 	default y
 	help
-	  Run a linker address generation validity checker at the end of the
-	  build.
+	  This turns on the linker flag to sort sections by alignment
+	  in decreasing size of symbols. This helps to minimize
+	  padding between symbols.
 
 endmenu
 
 menu "Compiler Options"
+
+config CODING_GUIDELINE_CHECK
+	bool "Enforce coding guideline rules"
+	help
+	  Use available compiler flags to check coding guideline rules during
+	  the build.
 
 config NATIVE_APPLICATION
 	bool "Build as a native host application"
@@ -244,6 +231,28 @@ config COMPILER_OPT
 
 endmenu
 
+choice
+	prompt "Error checking behavior for CHECK macro"
+	default RUNTIME_ERROR_CHECKS
+
+config ASSERT_ON_ERRORS
+	bool "Assert on all errors"
+	help
+	  Assert on errors covered with the CHECK macro.
+
+config NO_RUNTIME_CHECKS
+	bool "No runtime error checks"
+	help
+	  Do not do any runtime checks or asserts when using the CHECK macro.
+
+config RUNTIME_ERROR_CHECKS
+	bool "Enable runtime error checks"
+	help
+	  Always perform runtime checks covered with the CHECK macro. This
+	  option is the default and the only option used during testing.
+
+endchoice
+
 menu "Build Options"
 
 config KERNEL_BIN_NAME
@@ -264,6 +273,14 @@ config OUTPUT_DISASSEMBLY
 	help
 	  Create an .lst file with the assembly listing of the firmware.
 
+config OUTPUT_DISASSEMBLE_ALL
+	bool "Disassemble all sections with source. Fill zeros."
+	default n
+	depends on OUTPUT_DISASSEMBLY
+	help
+	  The .lst file will contain complete disassembly of the firmware
+	  not just those expected to contain instructions including zeros
+
 config OUTPUT_PRINT_MEMORY_USAGE
 	bool "Print memory usage to stdout"
 	default y
@@ -278,46 +295,65 @@ config OUTPUT_PRINT_MEMORY_USAGE
 	  ram_report and
 	  https://sourceware.org/binutils/docs/ld/MEMORY.html
 
+config CLEANUP_INTERMEDIATE_FILES
+	bool "Remove all intermediate files"
+	help
+	  Delete intermediate files to save space and cleanup clutter resulting
+	  from the build process.
+
+config BUILD_NO_GAP_FILL
+	bool "Don't fill gaps in generated hex/bin/s19 files."
+
 config BUILD_OUTPUT_HEX
 	bool "Build a binary in HEX format"
 	help
-	  Build a binary in HEX format. This will build a zephyr.hex file need
-	  by some platforms.
+	  Build an Intel HEX binary zephyr/zephyr.hex in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
 
 config BUILD_OUTPUT_BIN
 	bool "Build a binary in BIN format"
 	default y
 	help
-	  Build a binary in BIN format. This will build a zephyr.bin file need
-	  by some platforms.
+	  Build a "raw" binary zephyr/zephyr.bin in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
 
 config BUILD_OUTPUT_EXE
 	bool "Build a binary in ELF format with .exe extension"
 	help
-	  Build a binary in ELF format that can run in the host system. This
-	  will build a zephyr.exe file.
+	  Build an ELF binary that can run in the host system at
+	  zephyr/zephyr.exe in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
 
 config BUILD_OUTPUT_S19
 	bool "Build a binary in S19 format"
 	help
-	  Build a binary in S19 format. This will build a zephyr.s19 file need
-	  by some platforms.
-
-config BUILD_NO_GAP_FILL
-	bool "Don't fill gaps in generated hex/bin/s19 files."
-	depends on BUILD_OUTPUT_HEX || BUILD_OUTPUT_BIN || BUILD_OUTPUT_S19
+	  Build an S19 binary zephyr/zephyr.s19 in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
 
 config BUILD_OUTPUT_STRIPPED
 	bool "Build a stripped binary"
 	help
-	  Build a stripped binary. This will build a zephyr.stripped file need
-	  by some platforms.
+	  Build a stripped binary zephyr/zephyr.strip in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
 
 config APPLICATION_DEFINED_SYSCALL
 	bool "Scan application folder for any syscall definition"
 	help
 	  Scan additional folders inside application source folder
 	  for application defined syscalls.
+
+config MAKEFILE_EXPORTS
+	bool "Generate build metadata files named Makefile.exports"
+	help
+	  Generates a file with build information that can be read by
+	  third party Makefile-based build systems.
+
+config DEPRECATED_ZEPHYR_INT_TYPES
+	bool "Allow the use of the deprecated zephyr integer types"
+	help
+	  Allows the use of the deprecated Zephyr integer typedefs defined in
+	  Zephyr 2.3 and previous versions.  These types are:
+	  u8_t, u16_t, u32_t, u64_t, s8_t, s16_t, s32_t, and s64_t.
 
 endmenu
 endmenu
@@ -345,9 +381,16 @@ config BOOTLOADER_SRAM_SIZE
 	  - Zephyr is a !XIP image, which implicitly assumes existence of a
 	  bootloader that loads the Zephyr !XIP image onto SRAM.
 
+config MCUBOOT
+	bool
+	help
+	  Hidden option used to indicate that the current image is MCUBoot
+
 config BOOTLOADER_MCUBOOT
 	bool "MCUboot bootloader support"
-	select USE_CODE_PARTITION
+	select USE_DT_CODE_PARTITION
+	imply INIT_ARCH_HW_AT_BOOT if ARCH_SUPPORTS_ARCH_HW_INIT
+	depends on !MCUBOOT
 	help
 	  This option signifies that the target uses MCUboot as a bootloader,
 	  or in other words that the image is to be chain-loaded by MCUboot.
@@ -355,12 +398,65 @@ config BOOTLOADER_MCUBOOT
 	  order for the image generated to be bootable using the MCUboot open
 	  source bootloader. Currently this includes:
 
-	    * Setting TEXT_SECTION_OFFSET to a default value that allows space
+	    * Setting ROM_START_OFFSET to a default value that allows space
 	      for the MCUboot image header
-	    * Activating SW_VECTOR_RELAY on Cortex-M0 (or Armv8-M baseline)
-	      targets with no built-in vector relocation mechanisms
-	    * Including dts/common/mcuboot.overlay when building the Device
-	      Tree in order to place and link the image at the slot0 offset
+	    * Activating SW_VECTOR_RELAY_CLIENT on Cortex-M0
+	      (or Armv8-M baseline) targets with no built-in vector relocation
+	      mechanisms
+
+	  By default, this option instructs Zephyr to initialize the core
+	  architecture HW registers during boot, when this is supported by
+	  the application. This removes the need by MCUboot to reset
+	  the core registers' state itself.
+
+if BOOTLOADER_MCUBOOT
+
+config MCUBOOT_SIGNATURE_KEY_FILE
+	string "Path to the mcuboot signing key file"
+	default ""
+	help
+	  The file contains a key pair whose public half is verified
+	  by your target's MCUboot image. The file is in PEM format.
+
+	  If set to a non-empty value, the build system tries to
+	  sign the final binaries using a 'west sign -t imgtool' command.
+	  The signed binaries are placed in the build directory
+	  at zephyr/zephyr.signed.bin and zephyr/zephyr.signed.hex.
+
+	  The file names can be customized with CONFIG_KERNEL_BIN_NAME.
+	  The existence of bin and hex files depends on CONFIG_BUILD_OUTPUT_BIN
+	  and CONFIG_BUILD_OUTPUT_HEX.
+
+	  This option should contain an absolute path to the same file
+	  as the BOOT_SIGNATURE_KEY_FILE option in your MCUboot
+	  .config. (The MCUboot config option is used for the MCUboot
+	  bootloader image; this option is for your application which
+	  is to be loaded by MCUboot. The MCUboot config option can be
+	  a relative path from the MCUboot repository root; this option's
+	  behavior is undefined for relative paths.)
+
+	  If left empty, you must sign the Zephyr binaries manually.
+
+config MCUBOOT_EXTRA_IMGTOOL_ARGS
+	string "Extra arguments to pass to imgtool"
+	default ""
+	help
+	  If CONFIG_MCUBOOT_SIGNATURE_KEY_FILE is a non-empty string,
+	  you can use this option to pass extra options to imgtool.
+	  For example, you could set this to "--version 1.2".
+
+config MCUBOOT_GENERATE_CONFIRMED_IMAGE
+	bool "Also generate a padded, confirmed image"
+	help
+	  The signed, padded, and confirmed binaries are placed in the build
+	  directory at zephyr/zephyr.signed.confirmed.bin and
+	  zephyr/zephyr.signed.confirmed.hex.
+
+	  The file names can be customized with CONFIG_KERNEL_BIN_NAME.
+	  The existence of bin and hex files depends on CONFIG_BUILD_OUTPUT_BIN
+	  and CONFIG_BUILD_OUTPUT_HEX.
+
+endif # BOOTLOADER_MCUBOOT
 
 config BOOTLOADER_ESP_IDF
 	bool "ESP-IDF bootloader support"
@@ -370,37 +466,40 @@ config BOOTLOADER_ESP_IDF
 	  inside the build folder.
 	  At flash time, the bootloader will be flashed with the zephyr image
 
-config REALMODE
-	bool "boot from x86 real mode"
-	depends on X86
-	help
-	  This option enabled Zephyr to start in x86 real mode, instead of
-	  protected mode.
+config BOOTLOADER_BOSSA
+	bool "BOSSA bootloader support"
+	select USE_DT_CODE_PARTITION
+	depends on SOC_FAMILY_SAM0
 
-config BOOTLOADER_KEXEC
-	bool "Boot using Linux kexec() system call"
-	depends on X86
 	help
-	  This option signifies that Linux boots the kernel using kexec system call
-	  and utility. This method is used to boot the kernel over the network.
+	  Signifies that the target uses a BOSSA compatible bootloader.  If CDC
+	  ACM USB support is also enabled then the board will reboot into the
+	  bootloader automatically when bossac is run.
 
-config BOOTLOADER_UNKNOWN
-	bool "Generic boot loader support"
-	depends on X86
+config BOOTLOADER_BOSSA_DEVICE_NAME
+	string "BOSSA CDC ACM device name"
+	depends on BOOTLOADER_BOSSA && CDC_ACM_DTE_RATE_CALLBACK_SUPPORT
+	default "CDC_ACM_0"
 	help
-	  This option signifies that the target has a generic bootloader
-	  or that it supports multiple ways of booting and it isn't clear
-	  at build time which method is to be used. When this option is enabled
-	  the board may have to do extra work to ensure a proper startup.
+	  Sets the CDC ACM port to watch for reboot commands.
 
-config BOOTLOADER_CONTEXT_RESTORE
-	bool "Boot loader has context restore support"
-	default y
-	depends on SYS_POWER_DEEP_SLEEP_STATES && BOOTLOADER_CONTEXT_RESTORE_SUPPORTED
+choice
+	prompt "BOSSA bootloader variant"
+	depends on BOOTLOADER_BOSSA
+
+config BOOTLOADER_BOSSA_ARDUINO
+	bool "Arduino"
 	help
-	  This option signifies that the target has a bootloader
-	  that restores CPU context upon resuming from deep sleep
-	  power state.
+	  Select the Arduino variant of the BOSSA bootloader.  Uses 0x07738135
+	  as the magic value to enter the bootloader.
+
+config BOOTLOADER_BOSSA_ADAFRUIT_UF2
+	bool "Adafruit UF2"
+	help
+	  Select the Adafruit UF2 variant of the BOSSA bootloader.  Uses
+	  0xf01669ef as the magic value to enter the bootloader.
+
+endchoice
 
 config REBOOT
 	bool "Reboot functionality"
@@ -417,5 +516,16 @@ config MISRA_SANE
 	  disallows some otherwise-permitted features of the C
 	  standard for safety reasons.  Specifically variable length
 	  arrays are not permitted (and gcc will enforce this).
+
+endmenu
+
+menu "Compatibility"
+
+config COMPAT_INCLUDES
+	bool "Suppress warnings when using header shims"
+	default y
+	help
+	  Suppress any warnings from the pre-processor when including
+	  deprecated header files.
 
 endmenu

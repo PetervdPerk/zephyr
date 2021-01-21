@@ -20,7 +20,7 @@
 #define _POSIX_NRF52_BOARD_SOC_H
 
 #include <toolchain.h>
-#include <misc/util.h>
+#include <sys/util.h>
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -28,21 +28,10 @@
 #include <stddef.h>
 #include "irq.h"
 #include "irq_sources.h"
-#include "NRF_regs.h"
-#include "nrf_soc_if.h"
+#include <nrfx.h>
+#include "cmsis.h"
 
 #define OFFLOAD_SW_IRQ SWI0_EGU0_IRQn
-
-/* HACK due to the nrf52_bsim not yet supporting DTS */
-#if !defined(DT_NORDIC_NRF_CLOCK_0_LABEL)
-#define DT_NORDIC_NRF_CLOCK_0_LABEL "CLOCK"
-#endif
-#if !defined(DT_NORDIC_NRF_CLOCK_0_IRQ_0)
-#define DT_NORDIC_NRF_CLOCK_0_IRQ_0 POWER_CLOCK_IRQn
-#endif
-#if !defined(DT_NORDIC_NRF_CLOCK_0_IRQ_0_PRIORITY)
-#define DT_NORDIC_NRF_CLOCK_0_IRQ_0_PRIORITY 1
-#endif
 
 #ifdef __cplusplus
 extern "C" {

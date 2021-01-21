@@ -8,7 +8,7 @@
 #include "lifo_usage.h"
 #include <kernel.h>
 
-#define STACK_SIZE 1024
+#define STACK_SIZE (1024 + CONFIG_TEST_EXTRA_STACKSIZE)
 #define LIST_LEN 2
 
 struct k_lifo lifo, plifo;
@@ -29,15 +29,15 @@ struct scratch_lifo_packet {
 
 struct reply_packet {
 	void *link_in_lifo;
-	s32_t reply;
+	int32_t reply;
 };
 
 struct timeout_order_data {
 	void *link_in_lifo;
 	struct k_lifo *klifo;
-	u32_t timeout;
-	s32_t timeout_order;
-	s32_t q_order;
+	k_ticks_t timeout;
+	int32_t timeout_order;
+	int32_t q_order;
 };
 
 static struct k_lifo lifo_timeout[2];
@@ -64,7 +64,7 @@ struct timeout_order_data timeout_order_data_mult_lifo[] = {
 
 #define NUM_SCRATCH_LIFO_PACKETS 20
 #define TIMEOUT_ORDER_NUM_THREADS	ARRAY_SIZE(timeout_order_data_mult_lifo)
-#define TSTACK_SIZE			1024
+#define TSTACK_SIZE			(1024 + CONFIG_TEST_EXTRA_STACKSIZE)
 #define LIFO_THREAD_PRIO		-5
 
 struct scratch_lifo_packet scratch_lifo_packets[NUM_SCRATCH_LIFO_PACKETS];
@@ -105,12 +105,12 @@ static void thread_entry_nowait(void *p1, void *p2, void *p3)
 	k_sem_give(&start_sema);
 }
 
-static bool is_timeout_in_range(u32_t start_time, u32_t timeout)
+static bool is_timeout_in_range(uint32_t start_time, uint32_t timeout)
 {
-	u32_t stop_time, diff;
+	uint32_t stop_time, diff;
 
 	stop_time = k_cycle_get_32();
-	diff = SYS_CLOCK_HW_CYCLES_TO_NS(stop_time -
+	diff = (uint32_t)k_cyc_to_ns_floor64(stop_time -
 					start_time) / NSEC_PER_USEC;
 	diff = diff / USEC_PER_MSEC;
 	return timeout <= diff;
@@ -125,7 +125,7 @@ static int test_multiple_threads_pending(struct timeout_order_data *test_data,
 		tid[ii] = k_thread_create(&ttdata[ii], ttstack[ii], TSTACK_SIZE,
 				test_thread_pend_and_timeout,
 				&test_data[ii], NULL, NULL,
-				LIFO_THREAD_PRIO, K_INHERIT_PERMS, 0);
+				LIFO_THREAD_PRIO, K_INHERIT_PERMS, K_NO_WAIT);
 	}
 
 	for (ii = 0; ii < test_data_size; ii++) {
@@ -134,7 +134,8 @@ static int test_multiple_threads_pending(struct timeout_order_data *test_data,
 
 		if (data->timeout_order == ii) {
 			TC_PRINT(" thread (q order: %d, t/o: %d, lifo %p)\n",
-				data->q_order, data->timeout, data->klifo);
+				 data->q_order, (int) data->timeout,
+				 data->klifo);
 		} else {
 			zassert_equal(data->timeout_order, ii, " *** thread %d "
 				      "woke up, expected %d\n",
@@ -197,9 +198,9 @@ static void test_thread_timeout_reply_values_wfe(void *p1, void *p2, void *p3)
  */
 static void test_thread_put_timeout(void *p1, void *p2, void *p3)
 {
-	u32_t timeout = *((u32_t *)p2);
+	uint32_t timeout = *((uint32_t *)p2);
 
-	k_sleep(timeout);
+	k_msleep(timeout);
 	k_lifo_put((struct k_lifo *)p1, get_scratch_packet());
 }
 
@@ -218,7 +219,7 @@ static void test_lifo_nowait(void)
 
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
 				      thread_entry_nowait, &lifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 
 	k_lifo_put(&lifo, (void *)&data[1]);
 
@@ -240,7 +241,7 @@ static void test_lifo_wait(void)
 
 	k_tid_t tid = k_thread_create(&tdata1, tstack1, STACK_SIZE,
 				      thread_entry_wait, &plifo, NULL, NULL,
-				      K_PRIO_PREEMPT(0), 0, 0);
+				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
 
 	ret = k_lifo_get(&plifo, K_FOREVER);
 
@@ -263,13 +264,13 @@ static void test_timeout_empty_lifo(void)
 {
 	void *packet;
 
-	u32_t start_time, timeout;
+	uint32_t start_time, timeout;
 
 	timeout = 10U;
 
 	start_time = k_cycle_get_32();
 
-	packet = k_lifo_get(&lifo_timeout[0], timeout);
+	packet = k_lifo_get(&lifo_timeout[0], K_MSEC(timeout));
 
 	zassert_equal(packet, NULL, NULL);
 
@@ -310,7 +311,7 @@ static void test_timeout_lifo_thread(void)
 {
 	void *packet, *scratch_packet;
 	struct reply_packet reply_packet;
-	u32_t start_time, timeout;
+	uint32_t start_time, timeout;
 
 	/*
 	 * Test lifo with some timeout and child thread that puts
@@ -322,9 +323,9 @@ static void test_timeout_lifo_thread(void)
 	tid[0] = k_thread_create(&ttdata[0], ttstack[0], TSTACK_SIZE,
 				test_thread_put_timeout, &lifo_timeout[0],
 				&timeout, NULL,
-				LIFO_THREAD_PRIO, K_INHERIT_PERMS, 0);
+				LIFO_THREAD_PRIO, K_INHERIT_PERMS, K_NO_WAIT);
 
-	packet = k_lifo_get(&lifo_timeout[0], timeout + 10);
+	packet = k_lifo_get(&lifo_timeout[0], K_MSEC(timeout + 10));
 	zassert_true(packet != NULL, NULL);
 	zassert_true(is_timeout_in_range(start_time, timeout), NULL);
 	put_scratch_packet(packet);
@@ -338,7 +339,7 @@ static void test_timeout_lifo_thread(void)
 	tid[0] = k_thread_create(&ttdata[0], ttstack[0], TSTACK_SIZE,
 				test_thread_timeout_reply_values,
 				&reply_packet, NULL, NULL,
-				LIFO_THREAD_PRIO, K_INHERIT_PERMS, 0);
+				LIFO_THREAD_PRIO, K_INHERIT_PERMS, K_NO_WAIT);
 
 	k_yield();
 	packet = k_lifo_get(&timeout_order_lifo, K_NO_WAIT);
@@ -357,7 +358,7 @@ static void test_timeout_lifo_thread(void)
 	tid[0] = k_thread_create(&ttdata[0], ttstack[0], TSTACK_SIZE,
 				test_thread_timeout_reply_values,
 				&reply_packet, NULL, NULL,
-				LIFO_THREAD_PRIO, K_INHERIT_PERMS, 0);
+				LIFO_THREAD_PRIO, K_INHERIT_PERMS, K_NO_WAIT);
 
 	k_yield();
 	packet = k_lifo_get(&timeout_order_lifo, K_NO_WAIT);
@@ -377,7 +378,7 @@ static void test_timeout_lifo_thread(void)
 	tid[0] = k_thread_create(&ttdata[0], ttstack[0], TSTACK_SIZE,
 				test_thread_timeout_reply_values_wfe,
 				&reply_packet, NULL, NULL,
-				LIFO_THREAD_PRIO, K_INHERIT_PERMS, 0);
+				LIFO_THREAD_PRIO, K_INHERIT_PERMS, K_NO_WAIT);
 
 	packet = k_lifo_get(&timeout_order_lifo, K_FOREVER);
 	zassert_true(packet != NULL, NULL);
@@ -392,11 +393,11 @@ static void test_timeout_lifo_thread(void)
 void test_thread_pend_and_timeout(void *p1, void *p2, void *p3)
 {
 	struct timeout_order_data *d = (struct timeout_order_data *)p1;
-	u32_t start_time;
+	uint32_t start_time;
 	void *packet;
 
 	start_time = k_cycle_get_32();
-	packet = k_lifo_get(d->klifo, d->timeout);
+	packet = k_lifo_get(d->klifo, K_MSEC(d->timeout));
 	zassert_true(packet == NULL, NULL);
 	zassert_true(is_timeout_in_range(start_time, d->timeout), NULL);
 
@@ -412,7 +413,7 @@ void test_thread_pend_and_timeout(void *p1, void *p2, void *p3)
  */
 static void test_timeout_threads_pend_on_lifo(void)
 {
-	s32_t rv, test_data_size;
+	int32_t rv, test_data_size;
 
 	/*
 	 * Test multiple threads pending on the same
@@ -429,7 +430,7 @@ static void test_timeout_threads_pend_on_lifo(void)
  */
 static void test_para_init(void)
 {
-	s32_t ii;
+	intptr_t ii;
 
 	/* Init  kernel objects*/
 	k_lifo_init(&lifo_timeout[0]);
@@ -464,10 +465,10 @@ void test_main(void)
 
 	ztest_test_suite(test_lifo_usage,
 			 ztest_unit_test(test_lifo_nowait),
-			 ztest_unit_test(test_lifo_wait),
-			 ztest_unit_test(test_timeout_empty_lifo),
+			 ztest_1cpu_unit_test(test_lifo_wait),
+			 ztest_1cpu_unit_test(test_timeout_empty_lifo),
 			 ztest_unit_test(test_timeout_non_empty_lifo),
-			 ztest_unit_test(test_timeout_lifo_thread),
-			 ztest_unit_test(test_timeout_threads_pend_on_lifo));
+			 ztest_1cpu_unit_test(test_timeout_lifo_thread),
+			 ztest_1cpu_unit_test(test_timeout_threads_pend_on_lifo));
 	ztest_run_test_suite(test_lifo_usage);
 }

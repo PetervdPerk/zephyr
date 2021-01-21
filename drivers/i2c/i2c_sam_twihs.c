@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT atmel_sam_i2c_twihs
+
 /** @file
  * @brief I2C bus (TWIHS) driver for Atmel SAM MCU family.
  *
@@ -12,12 +14,12 @@
 
 
 #include <errno.h>
-#include <misc/__assert.h>
+#include <sys/__assert.h>
 #include <kernel.h>
 #include <device.h>
 #include <init.h>
 #include <soc.h>
-#include <i2c.h>
+#include <drivers/i2c.h>
 
 #define LOG_LEVEL CONFIG_I2C_LOG_LEVEL
 #include <logging/log.h>
@@ -38,24 +40,24 @@ LOG_MODULE_REGISTER(i2c_sam_twihs);
 struct i2c_sam_twihs_dev_cfg {
 	Twihs *regs;
 	void (*irq_config)(void);
-	u32_t bitrate;
+	uint32_t bitrate;
 	const struct soc_gpio_pin *pin_list;
-	u8_t pin_list_size;
-	u8_t periph_id;
-	u8_t irq_id;
+	uint8_t pin_list_size;
+	uint8_t periph_id;
+	uint8_t irq_id;
 };
 
 struct twihs_msg {
 	/* Buffer containing data to read or write */
-	u8_t *buf;
+	uint8_t *buf;
 	/* Length of the buffer */
-	u32_t len;
+	uint32_t len;
 	/* Index of the next byte to be read/written from/to the buffer */
-	u32_t idx;
+	uint32_t idx;
 	/* Value of TWIHS_SR at the end of the message */
-	u32_t twihs_sr;
+	uint32_t twihs_sr;
 	/* Transfer flags as defined in the i2c.h file */
-	u8_t flags;
+	uint8_t flags;
 };
 
 /* Device run time data */
@@ -64,26 +66,26 @@ struct i2c_sam_twihs_dev_data {
 	struct twihs_msg msg;
 };
 
-#define DEV_NAME(dev) ((dev)->config->name)
+#define DEV_NAME(dev) ((dev)->name)
 #define DEV_CFG(dev) \
-	((const struct i2c_sam_twihs_dev_cfg *const)(dev)->config->config_info)
+	((const struct i2c_sam_twihs_dev_cfg *const)(dev)->config)
 #define DEV_DATA(dev) \
-	((struct i2c_sam_twihs_dev_data *const)(dev)->driver_data)
+	((struct i2c_sam_twihs_dev_data *const)(dev)->data)
 
-static int i2c_clk_set(Twihs *const twihs, u32_t speed)
+static int i2c_clk_set(Twihs *const twihs, uint32_t speed)
 {
-	u32_t ck_div = 0U;
-	u32_t cl_div;
+	uint32_t ck_div = 0U;
+	uint32_t cl_div;
 	bool div_completed = false;
 
 	/*  From the datasheet "TWIHS Clock Waveform Generator Register"
 	 *  T_low = ( ( CLDIV × 2^CKDIV ) + 3 ) × T_MCK
 	 */
 	while (!div_completed) {
-		cl_div =   ((SOC_ATMEL_SAM_MCK_FREQ_HZ / (2 * speed)) - 3)
+		cl_div =   ((SOC_ATMEL_SAM_MCK_FREQ_HZ / (speed * 2U)) - 3)
 			 / (1 << ck_div);
 
-		if (cl_div <= 255) {
+		if (cl_div <= 255U) {
 			div_completed = true;
 		} else {
 			ck_div++;
@@ -102,11 +104,11 @@ static int i2c_clk_set(Twihs *const twihs, u32_t speed)
 	return 0;
 }
 
-static int i2c_sam_twihs_configure(struct device *dev, u32_t config)
+static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 {
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	Twihs *const twihs = dev_cfg->regs;
-	u32_t bitrate;
+	uint32_t bitrate;
 	int ret;
 
 	if (!(config & I2C_MODE_MASTER)) {
@@ -149,7 +151,7 @@ static int i2c_sam_twihs_configure(struct device *dev, u32_t config)
 }
 
 static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			    u8_t daddr)
+			    uint8_t daddr)
 {
 	/* Set slave address. */
 	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
@@ -162,9 +164,9 @@ static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
 }
 
 static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			   u8_t daddr)
+			   uint8_t daddr)
 {
-	u32_t twihs_cr_stop;
+	uint32_t twihs_cr_stop;
 
 	/* Set slave address and number of internal address bytes */
 	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
@@ -173,13 +175,14 @@ static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
 	twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 
 	/* In single data byte read the START and STOP must both be set */
-	twihs_cr_stop = (msg->len == 1) ? TWIHS_CR_STOP : 0;
+	twihs_cr_stop = (msg->len == 1U) ? TWIHS_CR_STOP : 0;
 	/* Start the transfer by sending START condition */
 	twihs->TWIHS_CR = TWIHS_CR_START | twihs_cr_stop;
 }
 
-static int i2c_sam_twihs_transfer(struct device *dev, struct i2c_msg *msgs,
-			      u8_t num_msgs, u16_t addr)
+static int i2c_sam_twihs_transfer(const struct device *dev,
+				  struct i2c_msg *msgs,
+				  uint8_t num_msgs, uint16_t addr)
 {
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
@@ -219,14 +222,13 @@ static int i2c_sam_twihs_transfer(struct device *dev, struct i2c_msg *msgs,
 	return 0;
 }
 
-static void i2c_sam_twihs_isr(void *arg)
+static void i2c_sam_twihs_isr(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
 	struct twihs_msg *msg = &dev_data->msg;
-	u32_t isr_status;
+	uint32_t isr_status;
 
 	/* Retrieve interrupt status */
 	isr_status = twihs->TWIHS_SR & twihs->TWIHS_IMR;
@@ -242,7 +244,7 @@ static void i2c_sam_twihs_isr(void *arg)
 
 		msg->buf[msg->idx++] = twihs->TWIHS_RHR;
 
-		if (msg->idx == msg->len - 1) {
+		if (msg->idx == msg->len - 1U) {
 			/* Send STOP condition */
 			twihs->TWIHS_CR = TWIHS_CR_STOP;
 		}
@@ -279,12 +281,12 @@ tx_comp:
 	k_sem_give(&dev_data->sem);
 }
 
-static int i2c_sam_twihs_initialize(struct device *dev)
+static int i2c_sam_twihs_initialize(const struct device *dev)
 {
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
-	u32_t bitrate_cfg;
+	uint32_t bitrate_cfg;
 	int ret;
 
 	/* Configure interrupts */
@@ -302,7 +304,7 @@ static int i2c_sam_twihs_initialize(struct device *dev)
 	/* Reset the module */
 	twihs->TWIHS_CR = TWIHS_CR_SWRST;
 
-	bitrate_cfg = _i2c_map_dt_bitrate(dev_cfg->bitrate);
+	bitrate_cfg = i2c_map_dt_bitrate(dev_cfg->bitrate);
 
 	ret = i2c_sam_twihs_configure(dev, I2C_MODE_MASTER | bitrate_cfg);
 	if (ret < 0) {
@@ -323,92 +325,33 @@ static const struct i2c_driver_api i2c_sam_twihs_driver_api = {
 	.transfer = i2c_sam_twihs_transfer,
 };
 
-/* I2C0 */
+#define I2C_TWIHS_SAM_INIT(n)						\
+	static void i2c##n##_sam_irq_config(void)			\
+	{								\
+		IRQ_CONNECT(DT_INST_IRQN(n), DT_INST_IRQ(n, priority),	\
+			    i2c_sam_twihs_isr,				\
+			    DEVICE_DT_INST_GET(n), 0);			\
+	}								\
+									\
+	static const struct soc_gpio_pin pins_twihs##n[] =		\
+		{ATMEL_SAM_DT_PIN(n, 0), ATMEL_SAM_DT_PIN(n, 1)};	\
+									\
+	static const struct i2c_sam_twihs_dev_cfg i2c##n##_sam_config = {\
+		.regs = (Twihs *)DT_INST_REG_ADDR(n),			\
+		.irq_config = i2c##n##_sam_irq_config,			\
+		.periph_id = DT_INST_PROP(n, peripheral_id),		\
+		.irq_id = DT_INST_IRQN(n),				\
+		.pin_list = pins_twihs##n,				\
+		.pin_list_size = ARRAY_SIZE(pins_twihs##n),		\
+		.bitrate = DT_INST_PROP(n, clock_frequency),		\
+	};								\
+									\
+	static struct i2c_sam_twihs_dev_data i2c##n##_sam_data;		\
+									\
+	DEVICE_DT_INST_DEFINE(n, &i2c_sam_twihs_initialize, 		\
+			    device_pm_control_nop,			\
+			    &i2c##n##_sam_data, &i2c##n##_sam_config,	\
+			    POST_KERNEL, CONFIG_I2C_INIT_PRIORITY,	\
+			    &i2c_sam_twihs_driver_api);
 
-#ifdef CONFIG_I2C_0
-static struct device DEVICE_NAME_GET(i2c0_sam);
-
-static void i2c0_sam_irq_config(void)
-{
-	IRQ_CONNECT(DT_I2C_0_IRQ, DT_I2C_0_IRQ_PRI, i2c_sam_twihs_isr,
-		    DEVICE_GET(i2c0_sam), 0);
-}
-
-static const struct soc_gpio_pin pins_twihs0[] = PINS_TWIHS0;
-
-static const struct i2c_sam_twihs_dev_cfg i2c0_sam_config = {
-	.regs = (Twihs *)DT_I2C_0_BASE_ADDRESS,
-	.irq_config = i2c0_sam_irq_config,
-	.periph_id = DT_I2C_0_PERIPHERAL_ID,
-	.irq_id = DT_I2C_0_IRQ,
-	.pin_list = pins_twihs0,
-	.pin_list_size = ARRAY_SIZE(pins_twihs0),
-	.bitrate = DT_I2C_0_BITRATE,
-};
-
-static struct i2c_sam_twihs_dev_data i2c0_sam_data;
-
-DEVICE_AND_API_INIT(i2c0_sam, CONFIG_I2C_0_NAME, &i2c_sam_twihs_initialize,
-		    &i2c0_sam_data, &i2c0_sam_config, POST_KERNEL,
-		    CONFIG_I2C_INIT_PRIORITY, &i2c_sam_twihs_driver_api);
-#endif
-
-/* I2C1 */
-
-#ifdef CONFIG_I2C_1
-static struct device DEVICE_NAME_GET(i2c1_sam);
-
-static void i2c1_sam_irq_config(void)
-{
-	IRQ_CONNECT(DT_I2C_1_IRQ, DT_I2C_1_IRQ_PRI, i2c_sam_twihs_isr,
-		    DEVICE_GET(i2c1_sam), 0);
-}
-
-static const struct soc_gpio_pin pins_twihs1[] = PINS_TWIHS1;
-
-static const struct i2c_sam_twihs_dev_cfg i2c1_sam_config = {
-	.regs = (Twihs *)DT_I2C_1_BASE_ADDRESS,
-	.irq_config = i2c1_sam_irq_config,
-	.periph_id = DT_I2C_1_PERIPHERAL_ID,
-	.irq_id = DT_I2C_1_IRQ,
-	.pin_list = pins_twihs1,
-	.pin_list_size = ARRAY_SIZE(pins_twihs1),
-	.bitrate = DT_I2C_1_BITRATE,
-};
-
-static struct i2c_sam_twihs_dev_data i2c1_sam_data;
-
-DEVICE_AND_API_INIT(i2c1_sam, CONFIG_I2C_1_NAME, &i2c_sam_twihs_initialize,
-		    &i2c1_sam_data, &i2c1_sam_config, POST_KERNEL,
-		    CONFIG_I2C_INIT_PRIORITY, &i2c_sam_twihs_driver_api);
-#endif
-
-/* I2C2 */
-
-#ifdef CONFIG_I2C_2
-static struct device DEVICE_NAME_GET(i2c2_sam);
-
-static void i2c2_sam_irq_config(void)
-{
-	IRQ_CONNECT(DT_I2C_2_IRQ, DT_I2C_2_IRQ_PRI, i2c_sam_twihs_isr,
-		    DEVICE_GET(i2c2_sam), 0);
-}
-
-static const struct soc_gpio_pin pins_twihs2[] = PINS_TWIHS2;
-
-static const struct i2c_sam_twihs_dev_cfg i2c2_sam_config = {
-	.regs = (Twihs *)DT_I2C_2_BASE_ADDRESS,
-	.irq_config = i2c2_sam_irq_config,
-	.periph_id = DT_I2C_2_PERIPHERAL_ID,
-	.irq_id = DT_I2C_2_IRQ,
-	.pin_list = pins_twihs2,
-	.pin_list_size = ARRAY_SIZE(pins_twihs2),
-	.bitrate = DT_I2C_2_BITRATE,
-};
-
-static struct i2c_sam_twihs_dev_data i2c2_sam_data;
-
-DEVICE_AND_API_INIT(i2c2_sam, CONFIG_I2C_2_NAME, &i2c_sam_twihs_initialize,
-		    &i2c2_sam_data, &i2c2_sam_config, POST_KERNEL,
-		    CONFIG_I2C_INIT_PRIORITY, &i2c_sam_twihs_driver_api);
-#endif
+DT_INST_FOREACH_STATUS_OKAY(I2C_TWIHS_SAM_INIT)

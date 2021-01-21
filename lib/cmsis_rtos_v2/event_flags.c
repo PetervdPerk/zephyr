@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel_structs.h>
+#include <kernel.h>
+#include <string.h>
 #include "wrapper.h"
 
 K_MEM_SLAB_DEFINE(cv2_event_flags_slab, sizeof(struct cv2_event_flags),
@@ -35,7 +36,7 @@ osEventFlagsId_t osEventFlagsNew(const osEventFlagsAttr_t *attr)
 		attr = &init_event_flags_attrs;
 	}
 
-	if (k_mem_slab_alloc(&cv2_event_flags_slab, (void **)&events, 100)
+	if (k_mem_slab_alloc(&cv2_event_flags_slab, (void **)&events, K_MSEC(100))
 	    == 0) {
 		memset(events, 0, sizeof(struct cv2_event_flags));
 	} else {
@@ -45,7 +46,7 @@ osEventFlagsId_t osEventFlagsNew(const osEventFlagsAttr_t *attr)
 	k_poll_signal_init(&events->poll_signal);
 	k_poll_event_init(&events->poll_event, K_POLL_TYPE_SIGNAL,
 			  K_POLL_MODE_NOTIFY_ONLY, &events->poll_signal);
-	events->signal_results = 0;
+	events->signal_results = 0U;
 
 	if (attr->name == NULL) {
 		strncpy(events->name, init_event_flags_attrs.name,
@@ -85,7 +86,7 @@ uint32_t osEventFlagsClear(osEventFlagsId_t ef_id, uint32_t flags)
 {
 	struct cv2_event_flags *events = (struct cv2_event_flags *)ef_id;
 	int key;
-	u32_t sig;
+	uint32_t sig;
 
 	if ((ef_id == NULL) || (flags & 0x80000000)) {
 		return osFlagsErrorParameter;
@@ -107,9 +108,9 @@ uint32_t osEventFlagsWait(osEventFlagsId_t ef_id, uint32_t flags,
 {
 	struct cv2_event_flags *events = (struct cv2_event_flags *)ef_id;
 	int retval, key;
-	u32_t sig;
-	u32_t time_delta_ms, timeout_ms = __ticks_to_ms(timeout);
-	u64_t time_stamp_start, hwclk_cycles_delta, time_delta_ns;
+	uint32_t sig;
+	uint32_t time_delta_ms, timeout_ms = k_ticks_to_ms_floor64(timeout);
+	uint64_t time_stamp_start, hwclk_cycles_delta, time_delta_ns;
 
 	/* Can be called from ISRs only if timeout is set to 0 */
 	if (timeout > 0 && k_is_in_isr()) {
@@ -122,7 +123,7 @@ uint32_t osEventFlagsWait(osEventFlagsId_t ef_id, uint32_t flags,
 
 	for (;;) {
 
-		time_stamp_start = (u64_t)k_cycle_get_32();
+		time_stamp_start = (uint64_t)k_cycle_get_32();
 
 		switch (timeout) {
 		case 0:
@@ -132,7 +133,8 @@ uint32_t osEventFlagsWait(osEventFlagsId_t ef_id, uint32_t flags,
 			retval = k_poll(&events->poll_event, 1, K_FOREVER);
 			break;
 		default:
-			retval = k_poll(&events->poll_event, 1, timeout_ms);
+			retval = k_poll(&events->poll_event, 1,
+					K_MSEC(timeout_ms));
 			break;
 		}
 
@@ -147,11 +149,11 @@ uint32_t osEventFlagsWait(osEventFlagsId_t ef_id, uint32_t flags,
 
 		__ASSERT(events->poll_event.state == K_POLL_STATE_SIGNALED,
 			 "event state not signalled!");
-		__ASSERT(events->poll_event.signal->signaled == 1,
+		__ASSERT(events->poll_event.signal->signaled == 1U,
 			 "event signaled is not 1");
 
 		/* Reset the states to facilitate the next trigger */
-		events->poll_event.signal->signaled = 0;
+		events->poll_event.signal->signaled = 0U;
 		events->poll_event.state = K_POLL_STATE_NOT_READY;
 
 		if (options & osFlagsWaitAll) {
@@ -168,17 +170,17 @@ uint32_t osEventFlagsWait(osEventFlagsId_t ef_id, uint32_t flags,
 			 * the time that has already elapsed.
 			 */
 			hwclk_cycles_delta =
-				(u64_t)k_cycle_get_32() - time_stamp_start;
+				(uint64_t)k_cycle_get_32() - time_stamp_start;
 
 			time_delta_ns =
-				(u32_t)SYS_CLOCK_HW_CYCLES_TO_NS(hwclk_cycles_delta);
+				(uint32_t)k_cyc_to_ns_floor64(hwclk_cycles_delta);
 
-			time_delta_ms = (u32_t)time_delta_ns / NSEC_PER_MSEC;
+			time_delta_ms = (uint32_t)time_delta_ns / NSEC_PER_MSEC;
 
 			if (timeout_ms > time_delta_ms) {
 				timeout_ms -= time_delta_ms;
 			} else {
-				timeout_ms = 0;
+				timeout_ms = 0U;
 			}
 		} else {
 			break;

@@ -1,4 +1,6 @@
-menuconfig FAKE_ENTROPY_NATIVE_POSIX
+# SPDX-License-Identifier: Apache-2.0
+
+config FAKE_ENTROPY_NATIVE_POSIX
 	bool "Native posix entropy driver"
 	depends on ARCH_POSIX
 	select ENTROPY_HAS_DRIVER

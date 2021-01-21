@@ -1,10 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 /dts-v1/;
 
 #include <nios2f.dtsi>
 
 / {
 	model = "altera_max10";
-	compatible = "altera,nios2f";
+	compatible = "altr,nios2-max10";
 
 	aliases {
 		uart-0 = &uart0;
@@ -19,11 +21,11 @@
 };
 
 &uart0 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };
 
 &i2c0 {
-	status = "ok";
+	status = "okay";
 	clock-frequency = <I2C_BITRATE_ULTRA>;
 };

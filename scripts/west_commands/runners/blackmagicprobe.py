@@ -5,14 +5,15 @@
 '''Runner for flashing with Black Magic Probe.'''
 # https://github.com/blacksphere/blackmagic/wiki
 
-from runners.core import ZephyrBinaryRunner, RunnerCaps
+import signal
 
+from runners.core import ZephyrBinaryRunner, RunnerCaps
 
 class BlackMagicProbeRunner(ZephyrBinaryRunner):
     '''Runner front-end for Black Magic probe.'''
 
     def __init__(self, cfg, gdb_serial):
-        super(BlackMagicProbeRunner, self).__init__(cfg)
+        super().__init__(cfg)
         self.gdb = [cfg.gdb] if cfg.gdb else None
         self.elf_file = cfg.elf_file
         self.gdb_serial = gdb_serial
@@ -26,7 +27,7 @@ class BlackMagicProbeRunner(ZephyrBinaryRunner):
         return RunnerCaps(commands={'flash', 'debug', 'attach'})
 
     @classmethod
-    def create(cls, cfg, args):
+    def do_create(cls, cfg, args):
         return BlackMagicProbeRunner(cfg, args.gdb_serial)
 
     @classmethod
@@ -35,8 +36,6 @@ class BlackMagicProbeRunner(ZephyrBinaryRunner):
                             help='GDB serial port')
 
     def bmp_flash(self, command, **kwargs):
-        if self.gdb is None:
-            raise ValueError('Cannot flash; gdb is missing')
         if self.elf_file is None:
             raise ValueError('Cannot debug; elf file is missing')
         command = (self.gdb +
@@ -50,9 +49,14 @@ class BlackMagicProbeRunner(ZephyrBinaryRunner):
                     '-silent'])
         self.check_call(command)
 
+    def check_call_ignore_sigint(self, command):
+        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            self.check_call(command)
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
     def bmp_attach(self, command, **kwargs):
-        if self.gdb is None:
-            raise ValueError('Cannot attach; gdb is missing')
         if self.elf_file is None:
             command = (self.gdb +
                        ['-ex', "set confirm off",
@@ -68,11 +72,9 @@ class BlackMagicProbeRunner(ZephyrBinaryRunner):
                         '-ex', "monitor swdp_scan",
                         '-ex', "attach 1",
                         '-ex', "file {}".format(self.elf_file)])
-        self.check_call(command)
+        self.check_call_ignore_sigint(command)
 
     def bmp_debug(self, command, **kwargs):
-        if self.gdb is None:
-            raise ValueError('Cannot debug; gdb is missing')
         if self.elf_file is None:
             raise ValueError('Cannot debug; elf file is missing')
         command = (self.gdb +
@@ -82,9 +84,12 @@ class BlackMagicProbeRunner(ZephyrBinaryRunner):
                     '-ex', "attach 1",
                     '-ex', "file {}".format(self.elf_file),
                     '-ex', "load {}".format(self.elf_file)])
-        self.check_call(command)
+        self.check_call_ignore_sigint(command)
 
     def do_run(self, command, **kwargs):
+        if self.gdb is None:
+            raise ValueError('Cannot execute; gdb not specified')
+        self.require(self.gdb[0])
 
         if command == 'flash':
             self.bmp_flash(command, **kwargs)

@@ -6,7 +6,9 @@
 
 #include <ztest.h>
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
+#include <fcntl.h>
+#include <sys/util.h>
 #include <mqueue.h>
 #include <pthread.h>
 
@@ -62,7 +64,7 @@ void test_posix_mqueue(void)
 {
 	mqd_t mqd;
 	struct mq_attr attrs;
-	s32_t mode = 0777, flags = O_RDWR | O_CREAT, ret, i;
+	int32_t mode = 0777, flags = O_RDWR | O_CREAT, ret, i;
 	void *retval;
 	pthread_attr_t attr[N_THR];
 	pthread_t newthread[N_THR];
@@ -84,18 +86,18 @@ void test_posix_mqueue(void)
 		if (i % 2) {
 			ret = pthread_create(&newthread[i], &attr[i],
 					     sender_thread,
-					     (void *)i);
+					     INT_TO_POINTER(i));
 		} else {
 			ret = pthread_create(&newthread[i], &attr[i],
 					     receiver_thread,
-					     (void *)i);
+					     INT_TO_POINTER(i));
 		}
 
 		zassert_false(ret, "Not enough space to create new thread");
 		zassert_equal(pthread_attr_destroy(&attr[i]), 0, NULL);
 	}
 
-	usleep(10 * USEC_PER_MSEC);
+	usleep(USEC_PER_MSEC * 10U);
 
 	for (i = 0; i < N_THR; i++) {
 		pthread_join(newthread[i], &retval);

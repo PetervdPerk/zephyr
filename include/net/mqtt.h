@@ -27,6 +27,9 @@
 #include <zephyr.h>
 #include <zephyr/types.h>
 #include <net/tls_credentials.h>
+#include <net/net_ip.h>
+#include <sys/mutex.h>
+#include <net/websocket.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,7 +75,10 @@ enum mqtt_evt_type {
 	MQTT_EVT_SUBACK,
 
 	/** Acknowledgment to a unsubscribe request. */
-	MQTT_EVT_UNSUBACK
+	MQTT_EVT_UNSUBACK,
+
+	/** Ping Response from server. */
+	MQTT_EVT_PINGRESP,
 };
 
 /** @brief MQTT version protocol level. */
@@ -144,14 +150,26 @@ enum mqtt_suback_return_code {
 
 /** @brief Abstracts UTF-8 encoded strings. */
 struct mqtt_utf8 {
-	u8_t *utf8;             /**< Pointer to UTF-8 string. */
-	u32_t size;             /**< Size of UTF string, in bytes. */
+	const uint8_t *utf8;       /**< Pointer to UTF-8 string. */
+	uint32_t size;             /**< Size of UTF string, in bytes. */
 };
+
+/**
+ * @brief Initialize UTF-8 encoded string from C literal string.
+ *
+ * Use it as follows:
+ *
+ * struct mqtt_utf8 password = MQTT_UTF8_LITERAL("my_pass");
+ *
+ * @param[in] literal Literal string from which to generate mqtt_utf8 object.
+ */
+#define MQTT_UTF8_LITERAL(literal)				\
+	((struct mqtt_utf8) {literal, sizeof(literal) - 1})
 
 /** @brief Abstracts binary strings. */
 struct mqtt_binstr {
-	u8_t *data;             /**< Pointer to binary stream. */
-	u32_t len;              /**< Length of binary stream. */
+	uint8_t *data;             /**< Pointer to binary stream. */
+	uint32_t len;              /**< Length of binary stream. */
 };
 
 /** @brief Abstracts MQTT UTF-8 encoded topic that can be subscribed
@@ -164,7 +182,7 @@ struct mqtt_topic {
 	/** Quality of service requested for the subscription.
 	 *  @ref mqtt_qos for details.
 	 */
-	u8_t qos;
+	uint8_t qos;
 };
 
 /** @brief Parameters for a publish message. */
@@ -179,7 +197,7 @@ struct mqtt_connack_param {
 	 *  the Client and Server have a consistent view about whether there
 	 *  is already stored Session state.
 	 */
-	u8_t session_present_flag;
+	uint8_t session_present_flag;
 
 	/** The appropriate non-zero Connect return code indicates if the Server
 	 *  is unable to process a connection request for some reason.
@@ -189,33 +207,33 @@ struct mqtt_connack_param {
 
 /** @brief Parameters for MQTT publish acknowledgment (PUBACK). */
 struct mqtt_puback_param {
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /** @brief Parameters for MQTT publish receive (PUBREC). */
 struct mqtt_pubrec_param {
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /** @brief Parameters for MQTT publish release (PUBREL). */
 struct mqtt_pubrel_param {
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /** @brief Parameters for MQTT publish complete (PUBCOMP). */
 struct mqtt_pubcomp_param {
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /** @brief Parameters for MQTT subscription acknowledgment (SUBACK). */
 struct mqtt_suback_param {
-	u16_t message_id;
+	uint16_t message_id;
 	struct mqtt_binstr return_codes;
 };
 
 /** @brief Parameters for MQTT unsubscribe acknowledgment (UNSUBACK). */
 struct mqtt_unsuback_param {
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /** @brief Parameters for a publish message. */
@@ -226,17 +244,17 @@ struct mqtt_publish_param {
 	struct mqtt_publish_message message;
 
 	/** Message id used for the publish message. Redundant for QoS 0. */
-	u16_t message_id;
+	uint16_t message_id;
 
 	/** Duplicate flag. If 1, it indicates the message is being
 	 *  retransmitted. Has no meaning with QoS 0.
 	 */
-	u8_t dup_flag : 1;
+	uint8_t dup_flag : 1;
 
 	/** Retain flag. If 1, the message shall be stored persistently
 	 *  by the broker.
 	 */
-	u8_t retain_flag : 1;
+	uint8_t retain_flag : 1;
 };
 
 /** @brief List of topics in a subscription request. */
@@ -245,10 +263,10 @@ struct mqtt_subscription_list {
 	struct mqtt_topic *list;
 
 	/** Number of topics in the subscription list */
-	u16_t list_count;
+	uint16_t list_count;
 
 	/** Message id used to identify subscription request. */
-	u16_t message_id;
+	uint16_t message_id;
 };
 
 /**
@@ -319,7 +337,7 @@ struct mqtt_sec_config {
 	int peer_verify;
 
 	/** Indicates the number of entries in the cipher list. */
-	u32_t cipher_count;
+	uint32_t cipher_count;
 
 	/** Indicates the list of ciphers to be used for the session.
 	 *  May be NULL to use the default ciphers.
@@ -327,7 +345,7 @@ struct mqtt_sec_config {
 	int *cipher_list;
 
 	/** Indicates the number of entries in the sec tag list. */
-	u32_t sec_tag_count;
+	uint32_t sec_tag_count;
 
 	/** Indicates the list of security tags to be used for the session. */
 	sec_tag_t *sec_tag_list;
@@ -335,7 +353,7 @@ struct mqtt_sec_config {
 	/** Peer hostname for ceritificate verification.
 	 *  May be NULL to skip hostname verification.
 	 */
-	char *hostname;
+	const char *hostname;
 };
 
 /** @brief MQTT transport type. */
@@ -348,10 +366,14 @@ enum mqtt_transport_type {
 	MQTT_TRANSPORT_SECURE,
 #endif /* CONFIG_MQTT_LIB_TLS */
 
-#if defined(CONFIG_MQTT_LIB_SOCKS)
-	/** Use SOCKS5 proxy for MQTT connection. */
-	MQTT_TRANSPORT_SOCKS,
-#endif /* CONFIG_MQTT_LIB_SOCKS */
+#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
+	/** Use non secure Websocket transport for MQTT connection. */
+	MQTT_TRANSPORT_NON_SECURE_WEBSOCKET,
+#if defined(CONFIG_MQTT_LIB_TLS)
+	/** Use secure Websocket transport (TLS) for MQTT connection. */
+	MQTT_TRANSPORT_SECURE_WEBSOCKET,
+#endif
+#endif /* CONFIG_MQTT_LIB_WEBSOCKET */
 
 	/** Shall not be used as a transport type.
 	 *  Indicator of maximum transport types possible.
@@ -386,39 +408,48 @@ struct mqtt_transport {
 			struct mqtt_sec_config config;
 		} tls;
 #endif /* CONFIG_MQTT_LIB_TLS */
-
-#if defined(CONFIG_MQTT_LIB_SOCKS)
-		/* SOCKS5 proxy transport for MQTT */
-		struct {
-			/** Socket descriptor. */
-			int sock;
-
-			/** SOCKS5 proxy address. */
-			struct sockaddr_storage *proxy;
-		} socks5;
-#endif /* CONFIG_MQTT_LIB_SOCKS */
-
 	};
+
+#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
+	/** Websocket transport for MQTT */
+	struct {
+		/** Websocket configuration. */
+		struct websocket_request config;
+
+		/** Socket descriptor */
+		int sock;
+
+		/** Websocket timeout, in milliseconds. */
+		int32_t timeout;
+	} websocket;
+#endif
+
+#if defined(CONFIG_SOCKS)
+	struct {
+		struct sockaddr addr;
+		socklen_t addrlen;
+	} proxy;
+#endif
 };
 
 /** @brief MQTT internal state. */
 struct mqtt_internal {
 	/** Internal. Mutex to protect access to the client instance. */
-	struct k_mutex mutex;
+	struct sys_mutex mutex;
 
 	/** Internal. Wall clock value (in milliseconds) of the last activity
 	 *  that occurred. Needed for periodic PING.
 	 */
-	u32_t last_activity;
+	uint32_t last_activity;
 
 	/** Internal. Client's state in the connection. */
-	u32_t state;
+	uint32_t state;
 
 	/** Internal.  Packet length read so far. */
-	u32_t rx_buf_datalen;
+	uint32_t rx_buf_datalen;
 
 	/** Internal. Remaining payload length to read. */
-	u32_t remaining_payload;
+	uint32_t remaining_payload;
 };
 
 /**
@@ -464,28 +495,36 @@ struct mqtt_client {
 	mqtt_evt_cb_t evt_cb;
 
 	/** Receive buffer used for MQTT packet reception in RX path. */
-	u8_t *rx_buf;
+	uint8_t *rx_buf;
 
 	/** Size of receive buffer. */
-	u32_t rx_buf_size;
+	uint32_t rx_buf_size;
 
 	/** Transmit buffer used for creating MQTT packet in TX path. */
-	u8_t *tx_buf;
+	uint8_t *tx_buf;
 
 	/** Size of transmit buffer. */
-	u32_t tx_buf_size;
+	uint32_t tx_buf_size;
+
+	/** Keepalive interval for this client in seconds.
+	 *  Default is CONFIG_MQTT_KEEPALIVE.
+	 */
+	uint16_t keepalive;
 
 	/** MQTT protocol version. */
-	u8_t protocol_version;
+	uint8_t protocol_version;
+
+	/** Unanswered PINGREQ count on this connection. */
+	int8_t unacked_ping;
 
 	/** Will retain flag, 1 if will message shall be retained persistently.
 	 */
-	u8_t will_retain : 1;
+	uint8_t will_retain : 1;
 
 	/** Clean session flag indicating a fresh (1) or a retained session (0).
-	 *  Default is 1.
+	 *  Default is CONFIG_MQTT_CLEAN_SESSION.
 	 */
-	u8_t clean_session : 1;
+	uint8_t clean_session : 1;
 };
 
 /**
@@ -498,6 +537,24 @@ struct mqtt_client {
  *       client parameters and before connecting to broker.
  */
 void mqtt_client_init(struct mqtt_client *client);
+
+#if defined(CONFIG_SOCKS)
+/*
+ * @brief Set proxy server details
+ *
+ * @param[in] client Client instance for which the procedure is requested,
+ *                   Shall not be NULL.
+ * @param[in] proxy_addr Proxy server address.
+ * @param[in] addrlen Proxy server address length.
+ *
+ * @return 0 or a negative error code (errno.h) indicating reason of failure.
+ *
+ * @note Must be called before calling mqtt_connect().
+ */
+int mqtt_client_set_proxy(struct mqtt_client *client,
+			  struct sockaddr *proxy_addr,
+			  socklen_t addrlen);
+#endif
 
 /**
  * @brief API to request new MQTT client connection.
@@ -513,7 +570,8 @@ void mqtt_client_init(struct mqtt_client *client);
  *
  * @note Default protocol revision used for connection request is 3.1.1. Please
  *       set client.protocol_version = MQTT_VERSION_3_1_0 to use protocol 3.1.0.
- * @note Please modify :option:`CONFIG_MQTT_KEEPALIVE` time to override default
+ * @note
+ *       Please modify @option{CONFIG_MQTT_KEEPALIVE} time to override default
  *       of 1 minute.
  */
 int mqtt_connect(struct mqtt_client *client);
@@ -663,6 +721,18 @@ int mqtt_abort(struct mqtt_client *client);
 int mqtt_live(struct mqtt_client *client);
 
 /**
+ * @brief Helper function to determine when next keep alive message should be
+ *        sent. Can be used for instance as a source for `poll` timeout.
+ *
+ * @param[in] client Client instance for which the procedure is requested.
+ *
+ * @return Time in milliseconds until next keep alive message is expected to
+ *         be sent. Function will return -1 if keep alive messages are
+ *         not enabled.
+ */
+int mqtt_keepalive_time_left(const struct mqtt_client *client);
+
+/**
  * @brief Receive an incoming MQTT packet. The registered callback will be
  *        called with the packet content.
  *
@@ -696,6 +766,35 @@ int mqtt_input(struct mqtt_client *client);
  */
 int mqtt_read_publish_payload(struct mqtt_client *client, void *buffer,
 			      size_t length);
+
+/**
+ * @brief Blocking version of @ref mqtt_read_publish_payload function.
+ *
+ * @param[in] client Client instance for which the procedure is requested.
+ *                   Shall not be NULL.
+ * @param[out] buffer Buffer where payload should be stored.
+ * @param[in] length Length of the buffer, in bytes.
+ *
+ * @return Number of bytes read or a negative error code (errno.h) indicating
+ *         reason of failure.
+ */
+int mqtt_read_publish_payload_blocking(struct mqtt_client *client, void *buffer,
+				       size_t length);
+
+/**
+ * @brief Blocking version of @ref mqtt_read_publish_payload function which
+ *        runs until the required number of bytes are read.
+ *
+ * @param[in] client Client instance for which the procedure is requested.
+ *                   Shall not be NULL.
+ * @param[out] buffer Buffer where payload should be stored.
+ * @param[in] length Number of bytes to read.
+ *
+ * @return 0 if success, otherwise a negative error code (errno.h) indicating
+ *         reason of failure.
+ */
+int mqtt_readall_publish_payload(struct mqtt_client *client, uint8_t *buffer,
+				 size_t length);
 
 #ifdef __cplusplus
 }

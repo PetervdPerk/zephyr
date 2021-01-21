@@ -1,4 +1,6 @@
-menuconfig UART_ALTERA_JTAG
+# SPDX-License-Identifier: Apache-2.0
+
+config UART_ALTERA_JTAG
 	bool "Nios II JTAG UART driver"
 	select SERIAL_HAS_DRIVER
 	help

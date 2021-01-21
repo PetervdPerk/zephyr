@@ -17,53 +17,15 @@
 #include <device.h>
 #include <init.h>
 #include <soc.h>
-#include <uart.h>
-#include <linker/sections.h>
+#include <drivers/uart.h>
 #include <fsl_common.h>
 #include <fsl_clock.h>
 #include <arch/cpu.h>
-#include <cortex_m/exc.h>
-
-#define PLLFLLSEL_MCGFLLCLK	(0)
-#define PLLFLLSEL_MCGPLLCLK	(1)
-#define PLLFLLSEL_IRC48MHZ	(3)
-
-#define ER32KSEL_OSC32KCLK	(0)
-#define ER32KSEL_RTC		(2)
-#define ER32KSEL_LPO1KHZ	(3)
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
 
 #define TIMESRC_OSCERCLK        (2)
 
-/*
- * K64F Flash configuration fields
- * These 16 bytes, which must be loaded to address 0x400, include default
- * protection and security settings.
- * They are loaded at reset to various Flash Memory module (FTFE) registers.
- *
- * The structure is:
- * -Backdoor Comparison Key for unsecuring the MCU - 8 bytes
- * -Program flash protection bytes, 4 bytes, written to FPROT0-3
- * -Flash security byte, 1 byte, written to FSEC
- * -Flash nonvolatile option byte, 1 byte, written to FOPT
- * -Reserved, 1 byte, (Data flash protection byte for FlexNVM)
- * -Reserved, 1 byte, (EEPROM protection byte for FlexNVM)
- *
- */
-u8_t __kinetis_flash_config_section __kinetis_flash_config[] = {
-	/* Backdoor Comparison Key (unused) */
-	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-	/* Program flash protection; 1 bit/region - 0=protected, 1=unprotected
-	 */
-	0xFF, 0xFF, 0xFF, 0xFF,
-	/*
-	 * Flash security: Backdoor key disabled, Mass erase enabled,
-	 *                 Factory access enabled, MCU is unsecure
-	 */
-	0xFE,
-	/* Flash nonvolatile option: NMI enabled, EzPort enabled, Normal boot */
-	0xFF,
-	/* Reserved for FlexNVM feature (unsupported by this MCU) */
-	0xFF, 0xFF};
+#define RUNM_HSRUN              (3)
 
 static const osc_config_t oscConfig = {
 	.freq = CONFIG_OSC_XTAL0_FREQ,
@@ -95,12 +57,12 @@ static const mcg_pll_config_t pll0Config = {
 };
 
 static const sim_clock_config_t simConfig = {
-	.pllFllSel = PLLFLLSEL_MCGPLLCLK, /* PLLFLLSEL select PLL. */
-	.er32kSrc = ER32KSEL_RTC,         /* ERCLK32K selection, use RTC. */
-	.clkdiv1 = SIM_CLKDIV1_OUTDIV1(CONFIG_K64_CORE_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV2(CONFIG_K64_BUS_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV3(CONFIG_K64_FLEXBUS_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV4(CONFIG_K64_FLASH_CLOCK_DIVIDER - 1),
+	.pllFllSel = DT_PROP(DT_INST(0, nxp_kinetis_sim), pllfll_select),
+	.er32kSrc = DT_PROP(DT_INST(0, nxp_kinetis_sim), er32k_select),
+	.clkdiv1 = SIM_CLKDIV1_OUTDIV1(CONFIG_K6X_CORE_CLOCK_DIVIDER - 1) |
+		   SIM_CLKDIV1_OUTDIV2(CONFIG_K6X_BUS_CLOCK_DIVIDER - 1) |
+		   SIM_CLKDIV1_OUTDIV3(CONFIG_K6X_FLEXBUS_CLOCK_DIVIDER - 1) |
+		   SIM_CLKDIV1_OUTDIV4(CONFIG_K6X_FLASH_CLOCK_DIVIDER - 1),
 };
 
 /**
@@ -119,7 +81,7 @@ static const sim_clock_config_t simConfig = {
  * @return N/A
  *
  */
-static ALWAYS_INLINE void clkInit(void)
+static ALWAYS_INLINE void clock_init(void)
 {
 	CLOCK_SetSimSafeDivs();
 
@@ -136,9 +98,12 @@ static ALWAYS_INLINE void clkInit(void)
 #if CONFIG_ETH_MCUX
 	CLOCK_SetEnetTime0Clock(TIMESRC_OSCERCLK);
 #endif
+#if CONFIG_ETH_MCUX_RMII_EXT_CLK
+	CLOCK_SetRmii0Clock(1);
+#endif
 #if CONFIG_USB_KINETIS
 	CLOCK_EnableUsbfs0Clock(kCLOCK_UsbSrcPll0,
-				CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
+				DT_PROP(DT_PATH(cpus, cpu_0), clock_frequency));
 #endif
 }
 
@@ -152,13 +117,13 @@ static ALWAYS_INLINE void clkInit(void)
  * @return 0
  */
 
-static int fsl_frdm_k64f_init(struct device *arg)
+static int k6x_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 
 	unsigned int oldLevel; /* old interrupt lock level */
 #if !defined(CONFIG_ARM_MPU)
-	u32_t temp_reg;
+	uint32_t temp_reg;
 #endif /* !CONFIG_ARM_MPU */
 
 	/* disable interrupts */
@@ -166,6 +131,11 @@ static int fsl_frdm_k64f_init(struct device *arg)
 
 	/* release I/O power hold to allow normal run state */
 	PMC->REGSC |= PMC_REGSC_ACKISO_MASK;
+
+#ifdef CONFIG_TEMP_KINETIS
+	/* enable bandgap buffer */
+	PMC->REGSC |= PMC_REGSC_BGBE_MASK;
+#endif /* CONFIG_TEMP_KINETIS */
 
 #if !defined(CONFIG_ARM_MPU)
 	/*
@@ -180,10 +150,14 @@ static int fsl_frdm_k64f_init(struct device *arg)
 	SYSMPU->CESR = temp_reg;
 #endif /* !CONFIG_ARM_MPU */
 
-	_ClearFaults();
-
-	/* Initialize PLL/system clock to 120 MHz */
-	clkInit();
+#ifdef CONFIG_K6X_HSRUN
+	/* Switch to HSRUN mode */
+	SMC->PMPROT |= SMC_PMPROT_AHSRUN_MASK;
+	SMC->PMCTRL = (SMC->PMCTRL & ~SMC_PMCTRL_RUNM_MASK) |
+		SMC_PMCTRL_RUNM(RUNM_HSRUN);
+#endif
+	/* Initialize PLL/system clock up to 180 MHz */
+	clock_init();
 
 	/*
 	 * install default handler that simply resets the CPU
@@ -196,4 +170,4 @@ static int fsl_frdm_k64f_init(struct device *arg)
 	return 0;
 }
 
-SYS_INIT(fsl_frdm_k64f_init, PRE_KERNEL_1, 0);
+SYS_INIT(k6x_init, PRE_KERNEL_1, 0);

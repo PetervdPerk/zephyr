@@ -1,50 +1,45 @@
-/*
- * Copyright (c) 2018 STMicroelectronics
+/* ST Microelectronics LIS2MDL 3-axis magnetometer sensor
  *
- * LIS2MDL mag interrupt configuration and management
+ * Copyright (c) 2018-2019 STMicroelectronics
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Datasheet:
+ * https://www.st.com/resource/en/datasheet/lis2mdl.pdf
  */
 
-#include <kernel.h>
-#include <sensor.h>
-#include <gpio.h>
+#define DT_DRV_COMPAT st_lis2mdl
 
+#include <kernel.h>
+#include <drivers/sensor.h>
+#include <drivers/gpio.h>
+#include <logging/log.h>
 #include "lis2mdl.h"
 
-#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-#include <logging/log.h>
-LOG_MODULE_DECLARE(LIS2MDL);
+LOG_MODULE_DECLARE(LIS2MDL, CONFIG_SENSOR_LOG_LEVEL);
 
-static int lis2mdl_enable_int(struct device *dev, int enable)
+static int lis2mdl_enable_int(const struct device *dev, int enable)
 {
-	struct lis2mdl_data *lis2mdl = dev->driver_data;
+	struct lis2mdl_data *lis2mdl = dev->data;
 
 	/* set interrupt on mag */
-	return i2c_reg_update_byte(lis2mdl->i2c, lis2mdl->i2c_addr,
-				   LIS2MDL_CFG_REG_C,
-				   LIS2MDL_INT_MAG_MASK,
-				   enable ? LIS2MDL_INT_MAG : 0);
+	return lis2mdl_drdy_on_pin_set(lis2mdl->ctx, enable);
 }
 
 /* link external trigger to event data ready */
-int lis2mdl_trigger_set(struct device *dev,
+int lis2mdl_trigger_set(const struct device *dev,
 			  const struct sensor_trigger *trig,
 			  sensor_trigger_handler_t handler)
 {
-	struct lis2mdl_data *lis2mdl = dev->driver_data;
-	u8_t raw[LIS2MDL_OUT_REG_SIZE];
+	struct lis2mdl_data *lis2mdl = dev->data;
+	int16_t raw[3];
 
 	if (trig->chan == SENSOR_CHAN_MAGN_XYZ) {
 		lis2mdl->handler_drdy = handler;
 		if (handler) {
 			/* fetch raw data sample: re-trigger lost interrupt */
-			if (i2c_burst_read(lis2mdl->i2c, lis2mdl->i2c_addr,
-					   LIS2MDL_OUT_REG, raw,
-					   sizeof(raw)) < 0) {
-				LOG_ERR("Failed to fetch raw data sample.");
-				return -EIO;
-			}
+			lis2mdl_magnetic_raw_get(lis2mdl->ctx, raw);
+
 			return lis2mdl_enable_int(dev, 1);
 		} else {
 			return lis2mdl_enable_int(dev, 0);
@@ -55,12 +50,10 @@ int lis2mdl_trigger_set(struct device *dev,
 }
 
 /* handle the drdy event: read data and call handler if registered any */
-static void lis2mdl_handle_interrupt(void *arg)
+static void lis2mdl_handle_interrupt(const struct device *dev)
 {
-	struct device *dev = arg;
-	struct lis2mdl_data *lis2mdl = dev->driver_data;
-	const struct lis2mdl_device_config *const config =
-						dev->config->config_info;
+	struct lis2mdl_data *lis2mdl = dev->data;
+	const struct lis2mdl_config *const config = dev->config;
 	struct sensor_trigger drdy_trigger = {
 		.type = SENSOR_TRIG_DATA_READY,
 	};
@@ -69,20 +62,20 @@ static void lis2mdl_handle_interrupt(void *arg)
 		lis2mdl->handler_drdy(dev, &drdy_trigger);
 	}
 
-	gpio_pin_enable_callback(lis2mdl->gpio, config->gpio_pin);
+	gpio_pin_interrupt_configure(lis2mdl->gpio, config->gpio_pin,
+				     GPIO_INT_EDGE_TO_ACTIVE);
 }
 
-static void lis2mdl_gpio_callback(struct device *dev,
-				    struct gpio_callback *cb, u32_t pins)
+static void lis2mdl_gpio_callback(const struct device *dev,
+				    struct gpio_callback *cb, uint32_t pins)
 {
 	struct lis2mdl_data *lis2mdl =
 		CONTAINER_OF(cb, struct lis2mdl_data, gpio_cb);
-	const struct lis2mdl_device_config *const config =
-						dev->config->config_info;
+	const struct lis2mdl_config *const config = lis2mdl->dev->config;
 
 	ARG_UNUSED(pins);
 
-	gpio_pin_disable_callback(dev, config->gpio_pin);
+	gpio_pin_interrupt_configure(dev, config->gpio_pin, GPIO_INT_DISABLE);
 
 #if defined(CONFIG_LIS2MDL_TRIGGER_OWN_THREAD)
 	k_sem_give(&lis2mdl->gpio_sem);
@@ -92,16 +85,11 @@ static void lis2mdl_gpio_callback(struct device *dev,
 }
 
 #ifdef CONFIG_LIS2MDL_TRIGGER_OWN_THREAD
-static void lis2mdl_thread(int dev_ptr, int unused)
+static void lis2mdl_thread(struct lis2mdl_data *lis2mdl)
 {
-	struct device *dev = INT_TO_POINTER(dev_ptr);
-	struct lis2mdl_data *lis2mdl = dev->driver_data;
-
-	ARG_UNUSED(unused);
-
 	while (1) {
 		k_sem_take(&lis2mdl->gpio_sem, K_FOREVER);
-		lis2mdl_handle_interrupt(dev);
+		lis2mdl_handle_interrupt(lis2mdl->dev);
 	}
 }
 #endif
@@ -116,11 +104,10 @@ static void lis2mdl_work_cb(struct k_work *work)
 }
 #endif
 
-int lis2mdl_init_interrupt(struct device *dev)
+int lis2mdl_init_interrupt(const struct device *dev)
 {
-	struct lis2mdl_data *lis2mdl = dev->driver_data;
-	const struct lis2mdl_device_config *const config =
-						dev->config->config_info;
+	struct lis2mdl_data *lis2mdl = dev->data;
+	const struct lis2mdl_config *const config = dev->config;
 
 	/* setup data ready gpio interrupt */
 	lis2mdl->gpio = device_get_binding(config->gpio_name);
@@ -130,9 +117,19 @@ int lis2mdl_init_interrupt(struct device *dev)
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_LIS2MDL_TRIGGER_OWN_THREAD)
+	k_sem_init(&lis2mdl->gpio_sem, 0, UINT_MAX);
+	k_thread_create(&lis2mdl->thread, lis2mdl->thread_stack,
+			CONFIG_LIS2MDL_THREAD_STACK_SIZE,
+			(k_thread_entry_t)lis2mdl_thread, lis2mdl,
+			NULL, NULL, K_PRIO_COOP(CONFIG_LIS2MDL_THREAD_PRIORITY),
+			0, K_NO_WAIT);
+#elif defined(CONFIG_LIS2MDL_TRIGGER_GLOBAL_THREAD)
+	lis2mdl->work.handler = lis2mdl_work_cb;
+#endif
+
 	gpio_pin_configure(lis2mdl->gpio, config->gpio_pin,
-			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
-			   GPIO_INT_ACTIVE_HIGH | GPIO_INT_DEBOUNCE);
+			   GPIO_INPUT | config->gpio_flags);
 
 	gpio_init_callback(&lis2mdl->gpio_cb,
 			   lis2mdl_gpio_callback,
@@ -143,19 +140,6 @@ int lis2mdl_init_interrupt(struct device *dev)
 		return -EIO;
 	}
 
-#if defined(CONFIG_LIS2MDL_TRIGGER_OWN_THREAD)
-	k_sem_init(&lis2mdl->gpio_sem, 0, UINT_MAX);
-	k_thread_create(&lis2mdl->thread, lis2mdl->thread_stack,
-			CONFIG_LIS2MDL_THREAD_STACK_SIZE,
-			(k_thread_entry_t)lis2mdl_thread, dev,
-			0, NULL, K_PRIO_COOP(CONFIG_LIS2MDL_THREAD_PRIORITY),
-			0, 0);
-#elif defined(CONFIG_LIS2MDL_TRIGGER_GLOBAL_THREAD)
-	lis2mdl->work.handler = lis2mdl_work_cb;
-	lis2mdl->dev = dev;
-#endif
-
-	gpio_pin_enable_callback(lis2mdl->gpio, config->gpio_pin);
-
-	return 0;
+	return gpio_pin_interrupt_configure(lis2mdl->gpio, config->gpio_pin,
+					    GPIO_INT_EDGE_TO_ACTIVE);
 }

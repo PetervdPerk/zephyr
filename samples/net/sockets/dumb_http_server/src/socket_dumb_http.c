@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#ifndef __ZEPHYR__
+#if !defined(__ZEPHYR__) || defined(CONFIG_POSIX_API)
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -20,11 +20,11 @@
 #include <net/socket.h>
 #include <kernel.h>
 
-#include <net/buf.h>
+#include <net/net_pkt.h>
 
 #endif
 
-#define PORT 8080
+#define BIND_PORT 8080
 
 #ifndef USE_BIG_PAYLOAD
 #define USE_BIG_PAYLOAD 1
@@ -40,7 +40,7 @@ static const char content[] = {
 #endif
 };
 
-int main(void)
+void main(void)
 {
 	int serv;
 	struct sockaddr_in bind_addr;
@@ -52,12 +52,13 @@ int main(void)
 
 	bind_addr.sin_family = AF_INET;
 	bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	bind_addr.sin_port = htons(PORT);
+	bind_addr.sin_port = htons(BIND_PORT);
 	CHECK(bind(serv, (struct sockaddr *)&bind_addr, sizeof(bind_addr)));
 
 	CHECK(listen(serv, 5));
 
-	printf("Single-threaded dumb HTTP server waits for a connection on port %d...\n", PORT);
+	printf("Single-threaded dumb HTTP server waits for a connection on "
+	       "port %d...\n", BIND_PORT);
 
 	while (1) {
 		struct sockaddr_in client_addr;
@@ -86,6 +87,10 @@ int main(void)
 			char c;
 
 			r = recv(client, &c, 1, 0);
+			if (r == 0) {
+				goto close_client;
+			}
+
 			if (r < 0) {
 				if (errno == EAGAIN || errno == EINTR) {
 					continue;
@@ -114,7 +119,7 @@ int main(void)
 			int sent_len = send(client, data, len, 0);
 
 			if (sent_len == -1) {
-				printf("Error sending data to peer\n");
+				printf("Error sending data to peer, errno: %d\n", errno);
 				break;
 			}
 			data += sent_len;
@@ -136,7 +141,7 @@ close_client:
 
 		net_pkt_get_info(&rx, &tx, &rx_data, &tx_data);
 		printf("rx buf: %d, tx buf: %d\n",
-		       rx_data->avail_count, tx_data->avail_count);
+		       atomic_get(&rx_data->avail_count), atomic_get(&tx_data->avail_count));
 #endif
 
 	}

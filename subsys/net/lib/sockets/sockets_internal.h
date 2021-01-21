@@ -7,24 +7,38 @@
 #ifndef _SOCKETS_INTERNAL_H_
 #define _SOCKETS_INTERNAL_H_
 
-#include <misc/fdtable.h>
+#include <sys/fdtable.h>
 
 #define SOCK_EOF 1
 #define SOCK_NONBLOCK 2
 
-static inline void sock_set_flag(struct net_context *ctx, u32_t mask,
-				 u32_t flag)
+static inline void sock_set_flag(struct net_context *ctx, uintptr_t mask,
+				 uintptr_t flag)
 {
-	u32_t val = POINTER_TO_INT(ctx->user_data);
+	uintptr_t val = POINTER_TO_UINT(ctx->socket_data);
 
 	val = (val & ~mask) | flag;
-	(ctx)->user_data = INT_TO_POINTER(val);
+	(ctx)->socket_data = UINT_TO_POINTER(val);
 }
 
-static inline u32_t sock_get_flag(struct net_context *ctx, u32_t mask)
+static inline uintptr_t sock_get_flag(struct net_context *ctx, uintptr_t mask)
 {
-	return POINTER_TO_INT(ctx->user_data) & mask;
+	return POINTER_TO_UINT(ctx->socket_data) & mask;
 }
+
+void net_socket_update_tc_rx_time(struct net_pkt *pkt, uint32_t end_tick);
+
+#if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS) && \
+    !defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+bool net_socket_is_tls(void *obj);
+#else
+static inline bool net_socket_is_tls(void *obj)
+{
+	ARG_UNUSED(obj);
+
+	return false;
+}
+#endif
 
 #define sock_is_eof(ctx) sock_get_flag(ctx, SOCK_EOF)
 #define sock_set_eof(ctx) sock_set_flag(ctx, SOCK_EOF, SOCK_EOF)
@@ -45,11 +59,9 @@ struct socket_op_vtable {
 			  void *optval, socklen_t *optlen);
 	int (*setsockopt)(void *obj, int level, int optname,
 			  const void *optval, socklen_t optlen);
+	ssize_t (*sendmsg)(void *obj, const struct msghdr *msg, int flags);
+	int (*getsockname)(void *obj, struct sockaddr *addr,
+			   socklen_t *addrlen);
 };
-
-int ztls_socket(int family, int type, int proto);
-
-int zpacket_socket(int family, int type, int proto);
-int zcan_socket(int family, int type, int proto);
 
 #endif /* _SOCKETS_INTERNAL_H_ */

@@ -46,7 +46,7 @@ static void disable_icache(void)
 		return; /* skip if i-cache is not present */
 	}
 	z_arc_v2_aux_reg_write(_ARC_V2_IC_IVIC, 0);
-	__asm__ __volatile__ ("nop");
+	__builtin_arc_nop();
 	z_arc_v2_aux_reg_write(_ARC_V2_IC_CTRL, 1);
 }
 
@@ -73,38 +73,6 @@ static void invalidate_dcache(void)
 }
 #endif
 
-/**
- *
- * @brief Adjust the vector table base
- *
- * Set the vector table base if the value found in the
- * _ARC_V2_IRQ_VECT_BASE auxiliary register is different from the
- * _VectorTable known by software. It is important to do this very early
- * so that exception vectors can be handled.
- *
- * @return N/A
- */
-
-static void adjust_vector_table_base(void)
-{
-#ifdef CONFIG_ARC_HAS_SECURE
-#undef _ARC_V2_IRQ_VECT_BASE
-#define _ARC_V2_IRQ_VECT_BASE _ARC_V2_IRQ_VECT_BASE_S
-#endif
-	extern struct vector_table _VectorTable;
-	unsigned int vbr;
-	/* if the compiled-in vector table is different
-	 * from the base address known by the ARC CPU,
-	 * set the vector base to the compiled-in address.
-	 */
-	vbr = z_arc_v2_aux_reg_read(_ARC_V2_IRQ_VECT_BASE);
-	vbr &= 0xfffffc00;
-	if (vbr != (unsigned int)&_VectorTable) {
-		z_arc_v2_aux_reg_write(_ARC_V2_IRQ_VECT_BASE,
-					(unsigned int)&_VectorTable);
-	}
-}
-
 extern FUNC_NORETURN void z_cstart(void);
 /**
  *
@@ -117,8 +85,7 @@ extern FUNC_NORETURN void z_cstart(void);
 
 void _PrepC(void)
 {
-	_icache_setup();
-	adjust_vector_table_base();
+	z_icache_setup();
 	z_bss_zero();
 	z_data_copy();
 	z_cstart();

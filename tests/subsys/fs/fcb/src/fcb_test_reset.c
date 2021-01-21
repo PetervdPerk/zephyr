@@ -7,13 +7,13 @@
 
 #include "fcb_test.h"
 
-void fcb_test_reset(void)
+void test_fcb_reset(void)
 {
 	struct fcb *fcb;
 	int rc;
 	int i;
 	struct fcb_entry loc;
-	u8_t test_data[128];
+	uint8_t test_data[128];
 	int var_cnt;
 
 	fcb = &test_fcb;
@@ -59,7 +59,7 @@ void fcb_test_reset(void)
 	 * Pretend reset
 	 */
 	(void)memset(fcb, 0, sizeof(*fcb));
-	fcb->f_sector_cnt = 2;
+	fcb->f_sector_cnt = 2U;
 	fcb->f_sectors = test_fcb_sector;
 
 	rc = fcb_init(TEST_FCB_FLASH_AREA_ID, fcb);
@@ -97,7 +97,7 @@ void fcb_test_reset(void)
 	zassert_true(rc == 0, "fcb_append call failure");
 
 	(void)memset(fcb, 0, sizeof(*fcb));
-	fcb->f_sector_cnt = 2;
+	fcb->f_sector_cnt = 2U;
 	fcb->f_sectors = test_fcb_sector;
 
 	rc = fcb_init(TEST_FCB_FLASH_AREA_ID, fcb);

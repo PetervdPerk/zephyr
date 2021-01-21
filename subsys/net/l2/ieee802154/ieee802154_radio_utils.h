@@ -51,7 +51,7 @@ static inline int wait_for_ack(struct net_if *iface,
 		return 0;
 	}
 
-	if (k_sem_take(&ctx->ack_lock, 10) == 0) {
+	if (k_sem_take(&ctx->ack_lock, K_MSEC(10)) == 0) {
 		/*
 		 * We reinit the semaphore in case handle_ack
 		 * got called multiple times.
@@ -59,7 +59,7 @@ static inline int wait_for_ack(struct net_if *iface,
 		k_sem_init(&ctx->ack_lock, 0, UINT_MAX);
 	}
 
-	ctx->ack_seq = 0;
+	ctx->ack_seq = 0U;
 
 	return ctx->ack_received ? 0 : -EIO;
 }
@@ -68,9 +68,10 @@ static inline int handle_ack(struct ieee802154_context *ctx,
 			     struct net_pkt *pkt)
 {
 	if (pkt->buffer->len == IEEE802154_ACK_PKT_LENGTH) {
+		uint8_t len = IEEE802154_ACK_PKT_LENGTH;
 		struct ieee802154_fcf_seq *fs;
 
-		fs = ieee802154_validate_fc_seq(net_pkt_data(pkt), NULL);
+		fs = ieee802154_validate_fc_seq(net_pkt_data(pkt), NULL, &len);
 		if (!fs || fs->sequence != ctx->ack_seq) {
 			return NET_CONTINUE;
 		}

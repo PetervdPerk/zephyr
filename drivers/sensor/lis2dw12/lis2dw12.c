@@ -8,40 +8,40 @@
  * https://www.st.com/resource/en/datasheet/lis2dw12.pdf
  */
 
-#include <init.h>
-#include <misc/__assert.h>
-#include <misc/byteorder.h>
-#include <logging/log.h>
-#include <sensor.h>
+#define DT_DRV_COMPAT st_lis2dw12
 
-#if defined(DT_ST_LIS2DW12_BUS_SPI)
-#include <spi.h>
-#elif defined(DT_ST_LIS2DW12_BUS_I2C)
-#include <i2c.h>
+#include <init.h>
+#include <sys/__assert.h>
+#include <sys/byteorder.h>
+#include <logging/log.h>
+#include <drivers/sensor.h>
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
+#include <drivers/spi.h>
+#elif DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
+#include <drivers/i2c.h>
 #endif
 
 #include "lis2dw12.h"
 
-#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-LOG_MODULE_REGISTER(LIS2DW12);
+LOG_MODULE_REGISTER(LIS2DW12, CONFIG_SENSOR_LOG_LEVEL);
 
 /**
  * lis2dw12_set_range - set full scale range for acc
  * @dev: Pointer to instance of struct device (I2C or SPI)
  * @range: Full scale range (2, 4, 8 and 16 G)
  */
-static int lis2dw12_set_range(struct device *dev, u16_t range)
+static int lis2dw12_set_range(const struct device *dev, uint16_t range)
 {
 	int err;
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
-	u8_t shift_gain = 0;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
+	uint8_t shift_gain = 0U;
+	uint8_t fs = LIS2DW12_FS_TO_REG(range);
 
-	err = lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL6_ADDR,
-					  LIS2DW12_FS_MASK,
-					  LIS2DW12_FS_TO_REG(range));
+	err = lis2dw12_full_scale_set(lis2dw12->ctx, fs);
 
-	if (cfg->pm == LIS2DW12_LOW_POWER_M1) {
+	if (cfg->pm == LIS2DW12_CONT_LOW_PWR_12bit) {
 		shift_gain = LIS2DW12_SHFT_GAIN_NOLP1;
 	}
 
@@ -60,61 +60,59 @@ static int lis2dw12_set_range(struct device *dev, u16_t range)
  * @dev: Pointer to instance of struct device (I2C or SPI)
  * @odr: Output data rate
  */
-static int lis2dw12_set_odr(struct device *dev, u16_t odr)
+static int lis2dw12_set_odr(const struct device *dev, uint16_t odr)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	uint8_t val;
 
 	/* check if power off */
-	if (odr == 0) {
-		return lis2dw12->hw_tf->update_reg(lis2dw12,
-						   LIS2DW12_CTRL1_ADDR,
-						   LIS2DW12_ODR_MASK,
-						   LIS2DW12_ODR_POWER_OFF_VAL);
+	if (odr == 0U) {
+		return lis2dw12_data_rate_set(lis2dw12->ctx,
+					      LIS2DW12_XL_ODR_OFF);
 	}
 
-	if (odr > LIS2DW12_MAX_ODR) {
+	val =  LIS2DW12_ODR_TO_REG(odr);
+	if (val > LIS2DW12_XL_ODR_1k6Hz) {
 		LOG_ERR("ODR too high");
 		return -ENOTSUP;
 	}
 
-	return lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL1_ADDR,
-					   LIS2DW12_ODR_MASK,
-					   LIS2DW12_ODR_TO_REG(odr));
+	return lis2dw12_data_rate_set(lis2dw12->ctx, val);
 }
 
 static inline void lis2dw12_convert(struct sensor_value *val, int raw_val,
 				    float gain)
 {
-	s64_t dval;
+	int64_t dval;
 
 	/* Gain is in ug/LSB */
 	/* Convert to m/s^2 */
-	dval = ((s64_t)raw_val * gain * SENSOR_G) / 1000000LL;
+	dval = ((int64_t)raw_val * gain * SENSOR_G) / 1000000LL;
 	val->val1 = dval / 1000000LL;
 	val->val2 = dval % 1000000LL;
 }
 
-static inline void lis2dw12_channel_get_acc(struct device *dev,
+static inline void lis2dw12_channel_get_acc(const struct device *dev,
 					     enum sensor_channel chan,
 					     struct sensor_value *val)
 {
 	int i;
-	u8_t ofs_start, ofs_stop;
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
+	uint8_t ofs_start, ofs_stop;
+	struct lis2dw12_data *lis2dw12 = dev->data;
 	struct sensor_value *pval = val;
 
 	switch (chan) {
 	case SENSOR_CHAN_ACCEL_X:
-		ofs_start = ofs_stop = 0;
+		ofs_start = ofs_stop = 0U;
 		break;
 	case SENSOR_CHAN_ACCEL_Y:
-		ofs_start = ofs_stop = 1;
+		ofs_start = ofs_stop = 1U;
 		break;
 	case SENSOR_CHAN_ACCEL_Z:
-		ofs_start = ofs_stop = 2;
+		ofs_start = ofs_stop = 2U;
 		break;
 	default:
-		ofs_start = 0; ofs_stop = 2;
+		ofs_start = 0U; ofs_stop = 2U;
 		break;
 	}
 
@@ -123,7 +121,7 @@ static inline void lis2dw12_channel_get_acc(struct device *dev,
 	}
 }
 
-static int lis2dw12_channel_get(struct device *dev,
+static int lis2dw12_channel_get(const struct device *dev,
 				 enum sensor_channel chan,
 				 struct sensor_value *val)
 {
@@ -142,7 +140,7 @@ static int lis2dw12_channel_get(struct device *dev,
 	return -ENOTSUP;
 }
 
-static int lis2dw12_config(struct device *dev, enum sensor_channel chan,
+static int lis2dw12_config(const struct device *dev, enum sensor_channel chan,
 			    enum sensor_attribute attr,
 			    const struct sensor_value *val)
 {
@@ -159,7 +157,8 @@ static int lis2dw12_config(struct device *dev, enum sensor_channel chan,
 	return -ENOTSUP;
 }
 
-static int lis2dw12_attr_set(struct device *dev, enum sensor_channel chan,
+static int lis2dw12_attr_set(const struct device *dev,
+			      enum sensor_channel chan,
 			      enum sensor_attribute attr,
 			      const struct sensor_value *val)
 {
@@ -177,44 +176,30 @@ static int lis2dw12_attr_set(struct device *dev, enum sensor_channel chan,
 	return -ENOTSUP;
 }
 
-static int lis2dw12_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int lis2dw12_sample_fetch(const struct device *dev,
+				 enum sensor_channel chan)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
-	u8_t shift;
-	union {
-		u8_t raw[6];
-		struct {
-			s16_t a_axis[3];
-		};
-	} buf __aligned(2);
-	u8_t tmp;
-
-	if (lis2dw12->hw_tf->read_reg(lis2dw12, LIS2DW12_STATUS_REG, &tmp)) {
-		return -EIO;
-	}
-
-	if (!(tmp & LIS2DW12_STS_XLDA_UP)) {
-		return -EAGAIN;
-	}
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
+	uint8_t shift;
+	int16_t buf[3];
 
 	/* fetch raw data sample */
-	if (lis2dw12->hw_tf->read_data(lis2dw12, LIS2DW12_OUT_X_L_ADDR,
-				buf.raw, sizeof(buf)) < 0) {
+	if (lis2dw12_acceleration_raw_get(lis2dw12->ctx, buf) < 0) {
 		LOG_DBG("Failed to fetch raw data sample");
 		return -EIO;
 	}
 
 	/* adjust to resolution */
-	if (cfg->pm == LIS2DW12_LOW_POWER_M1) {
+	if (cfg->pm == LIS2DW12_CONT_LOW_PWR_12bit) {
 		shift = LIS2DW12_SHIFT_PM1;
 	} else {
 		shift = LIS2DW12_SHIFT_PMOTHER;
 	}
 
-	lis2dw12->acc[0] = sys_le16_to_cpu(buf.a_axis[0]) >> shift;
-	lis2dw12->acc[1] = sys_le16_to_cpu(buf.a_axis[1]) >> shift;
-	lis2dw12->acc[2] = sys_le16_to_cpu(buf.a_axis[2]) >> shift;
+	lis2dw12->acc[0] = sys_le16_to_cpu(buf[0]) >> shift;
+	lis2dw12->acc[1] = sys_le16_to_cpu(buf[1]) >> shift;
+	lis2dw12->acc[2] = sys_le16_to_cpu(buf[2]) >> shift;
 
 	return 0;
 }
@@ -228,10 +213,10 @@ static const struct sensor_driver_api lis2dw12_driver_api = {
 	.channel_get = lis2dw12_channel_get,
 };
 
-static int lis2dw12_init_interface(struct device *dev)
+static int lis2dw12_init_interface(const struct device *dev)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
 
 	lis2dw12->bus = device_get_binding(cfg->bus_name);
 	if (!lis2dw12->bus) {
@@ -239,9 +224,9 @@ static int lis2dw12_init_interface(struct device *dev)
 		return -EINVAL;
 	}
 
-#if defined(DT_ST_LIS2DW12_BUS_SPI)
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
 	lis2dw12_spi_init(dev);
-#elif defined(DT_ST_LIS2DW12_BUS_I2C)
+#elif DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
 	lis2dw12_i2c_init(dev);
 #else
 #error "BUS MACRO NOT DEFINED IN DTS"
@@ -251,64 +236,54 @@ static int lis2dw12_init_interface(struct device *dev)
 }
 
 static int lis2dw12_set_power_mode(struct lis2dw12_data *lis2dw12,
-				    enum lis2dh_powermode pm)
+				    lis2dw12_mode_t pm)
 {
-	u8_t regval = LIS2DW12_LOW_POWER_M1 | LIS2DW12_LOW_POWER_MODE;
+	uint8_t regval = LIS2DW12_CONT_LOW_PWR_12bit;
 
 	switch (pm) {
-	case LIS2DW12_LOW_POWER_M2:
-		regval = LIS2DW12_LOW_POWER_M2 | LIS2DW12_LOW_POWER_MODE;
-		break;
-	case LIS2DW12_LOW_POWER_M3:
-		regval = LIS2DW12_LOW_POWER_M3 | LIS2DW12_LOW_POWER_MODE;
-		break;
-	case LIS2DW12_LOW_POWER_M4:
-		regval = LIS2DW12_LOW_POWER_M4 | LIS2DW12_LOW_POWER_MODE;
-		break;
-	case LIS2DW12_HIGH_PERF:
-		regval = LIS2DW12_HP_MODE;
+	case LIS2DW12_CONT_LOW_PWR_2:
+	case LIS2DW12_CONT_LOW_PWR_3:
+	case LIS2DW12_CONT_LOW_PWR_4:
+	case LIS2DW12_HIGH_PERFORMANCE:
+		regval = pm;
 		break;
 	default:
 		LOG_DBG("Apply default Power Mode");
 		break;
 	}
 
-	return lis2dw12->hw_tf->write_reg(lis2dw12, LIS2DW12_CTRL1_ADDR,
-					  regval);
+	return lis2dw12_write_reg(lis2dw12->ctx, LIS2DW12_CTRL1, &regval, 1);
 }
 
-static int lis2dw12_init(struct device *dev)
+static int lis2dw12_init(const struct device *dev)
 {
-	struct lis2dw12_data *lis2dw12 = dev->driver_data;
-	const struct lis2dw12_device_config *cfg = dev->config->config_info;
-	u8_t wai;
+	struct lis2dw12_data *lis2dw12 = dev->data;
+	const struct lis2dw12_device_config *cfg = dev->config;
+	uint8_t wai;
 
 	if (lis2dw12_init_interface(dev)) {
 		return -EINVAL;
 	}
 
 	/* check chip ID */
-	if (lis2dw12->hw_tf->read_reg(lis2dw12, LIS2DW12_WHO_AM_I_REG,
-				      &wai) < 0) {
-		LOG_ERR("Failed to read chip ID");
+	if (lis2dw12_device_id_get(lis2dw12->ctx, &wai) < 0) {
 		return -EIO;
 	}
 
-	if (wai != LIS2DW12_WHO_AM_I) {
+	if (wai != LIS2DW12_ID) {
 		LOG_ERR("Invalid chip ID");
 		return -EINVAL;
 	}
 
 	/* reset device */
-	if (lis2dw12->hw_tf->write_reg(lis2dw12, LIS2DW12_CTRL2_ADDR,
-				       LIS2DW12_RESET_MASK)) {
+	if (lis2dw12_reset_set(lis2dw12->ctx, PROPERTY_ENABLE) < 0) {
 		return -EIO;
 	}
 
 	k_busy_wait(100);
 
-	if (lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL2_ADDR,
-					LIS2DW12_BDU_MASK, LIS2DW12_EN_BIT)) {
+	if (lis2dw12_block_data_update_set(lis2dw12->ctx,
+					   PROPERTY_ENABLE) < 0) {
 		return -EIO;
 	}
 
@@ -318,21 +293,17 @@ static int lis2dw12_init(struct device *dev)
 	}
 
 	/* set default odr and full scale for acc */
-	if (lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL1_ADDR,
-					LIS2DW12_ODR_MASK,
-					LIS2DW12_DEFAULT_ODR)) {
+	if (lis2dw12_data_rate_set(lis2dw12->ctx, LIS2DW12_DEFAULT_ODR) < 0) {
 		return -EIO;
 	}
 
-	if (lis2dw12->hw_tf->update_reg(lis2dw12, LIS2DW12_CTRL6_ADDR,
-					LIS2DW12_FS_MASK,
-					LIS2DW12_ACC_FS)) {
+	if (lis2dw12_full_scale_set(lis2dw12->ctx, LIS2DW12_ACC_FS) < 0) {
 		return -EIO;
 	}
 
 	lis2dw12->gain =
 		LIS2DW12_FS_TO_GAIN(LIS2DW12_ACC_FS,
-				    cfg->pm == LIS2DW12_LOW_POWER_M1 ?
+				    cfg->pm == LIS2DW12_CONT_LOW_PWR_12bit ?
 				    LIS2DW12_SHFT_GAIN_NOLP1 : 0);
 
 #ifdef CONFIG_LIS2DW12_TRIGGER
@@ -340,28 +311,100 @@ static int lis2dw12_init(struct device *dev)
 		LOG_ERR("Failed to initialize interrupts");
 		return -EIO;
 	}
+
+#ifdef CONFIG_LIS2DW12_PULSE
+	if (lis2dw12_tap_mode_set(lis2dw12->ctx, cfg->pulse_trigger) < 0) {
+		LOG_ERR("Failed to select pulse trigger mode");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_threshold_x_set(lis2dw12->ctx,
+					 cfg->pulse_ths[0]) < 0) {
+		LOG_ERR("Failed to set tap X axis threshold");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_threshold_y_set(lis2dw12->ctx,
+					 cfg->pulse_ths[1]) < 0) {
+		LOG_ERR("Failed to set tap Y axis threshold");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_threshold_z_set(lis2dw12->ctx,
+					 cfg->pulse_ths[2]) < 0) {
+		LOG_ERR("Failed to set tap Z axis threshold");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_detection_on_x_set(lis2dw12->ctx,
+					    CONFIG_LIS2DW12_PULSE_X) < 0) {
+		LOG_ERR("Failed to set tap detection on X axis");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_detection_on_y_set(lis2dw12->ctx,
+					    CONFIG_LIS2DW12_PULSE_Y) < 0) {
+		LOG_ERR("Failed to set tap detection on Y axis");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_detection_on_z_set(lis2dw12->ctx,
+					    CONFIG_LIS2DW12_PULSE_Z) < 0) {
+		LOG_ERR("Failed to set tap detection on Z axis");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_shock_set(lis2dw12->ctx, cfg->pulse_shock) < 0) {
+		LOG_ERR("Failed to set tap shock duration");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_dur_set(lis2dw12->ctx, cfg->pulse_ltncy) < 0) {
+		LOG_ERR("Failed to set tap latency");
+		return -EIO;
+	}
+
+	if (lis2dw12_tap_quiet_set(lis2dw12->ctx, cfg->pulse_quiet) < 0) {
+		LOG_ERR("Failed to set tap quiet time");
+		return -EIO;
+	}
+#endif /* CONFIG_LIS2DW12_PULSE */
 #endif /* CONFIG_LIS2DW12_TRIGGER */
 
 	return 0;
 }
 
 const struct lis2dw12_device_config lis2dw12_cfg = {
-	.bus_name = DT_ST_LIS2DW12_0_BUS_NAME,
+	.bus_name = DT_INST_BUS_LABEL(0),
 	.pm = CONFIG_LIS2DW12_POWER_MODE,
 #ifdef CONFIG_LIS2DW12_TRIGGER
-	.int_gpio_port = DT_ST_LIS2DW12_0_IRQ_GPIOS_CONTROLLER,
-	.int_gpio_pin = DT_ST_LIS2DW12_0_IRQ_GPIOS_PIN,
+	.int_gpio_port = DT_INST_GPIO_LABEL(0, irq_gpios),
+	.int_gpio_pin = DT_INST_GPIO_PIN(0, irq_gpios),
+	.int_gpio_flags = DT_INST_GPIO_FLAGS(0, irq_gpios),
 #if defined(CONFIG_LIS2DW12_INT_PIN_1)
 	.int_pin = 1,
 #elif defined(CONFIG_LIS2DW12_INT_PIN_2)
 	.int_pin = 2,
 #endif /* CONFIG_LIS2DW12_INT_PIN */
 
+#ifdef CONFIG_LIS2DW12_PULSE
+#if defined(CONFIG_LIS2DW12_ONLY_SINGLE)
+	.pulse_trigger = LIS2DW12_ONLY_SINGLE,
+#elif defined(CONFIG_LIS2DW12_SINGLE_DOUBLE)
+	.pulse_trigger = LIS2DW12_BOTH_SINGLE_DOUBLE,
+#endif
+	.pulse_ths[0] = CONFIG_LIS2DW12_PULSE_THSX,
+	.pulse_ths[1] = CONFIG_LIS2DW12_PULSE_THSY,
+	.pulse_ths[2] = CONFIG_LIS2DW12_PULSE_THSZ,
+	.pulse_shock = CONFIG_LIS2DW12_PULSE_SHOCK,
+	.pulse_ltncy = CONFIG_LIS2DW12_PULSE_LTNCY,
+	.pulse_quiet = CONFIG_LIS2DW12_PULSE_QUIET,
+#endif /* CONFIG_LIS2DW12_PULSE */
 #endif /* CONFIG_LIS2DW12_TRIGGER */
 };
 
 struct lis2dw12_data lis2dw12_data;
 
-DEVICE_AND_API_INIT(lis2dw12, DT_ST_LIS2DW12_0_LABEL, lis2dw12_init,
+DEVICE_DT_INST_DEFINE(0, lis2dw12_init, device_pm_control_nop,
 	     &lis2dw12_data, &lis2dw12_cfg, POST_KERNEL,
 	     CONFIG_SENSOR_INIT_PRIORITY, &lis2dw12_driver_api);

@@ -1,7 +1,7 @@
 .. _frdm_kw41z_shield:
 
-NXP FRDM-KW41Z
-##############
+NXP FRDM-KW41Z Shield
+#####################
 
 Overview
 ********
@@ -30,9 +30,9 @@ host controller interface (HCI):
 
 #. Open :file:`source/common/app_preinclude.h` and add the following line:
 
-.. code-block:: console
+   .. code-block:: console
 
-	#define gSerialMgrRxBufSize_c 64
+      #define gSerialMgrRxBufSize_c 64
 
 #. Build the project to generate a binary :file:`hci_black_box_frdmkw41z.bin`.
 
@@ -44,8 +44,10 @@ host controller interface (HCI):
 #. Remove the USB cable to power down the board.
 
 #. Configure the jumpers J30 and J31 such that:
+
    - J30 pin 1 is attached to J31 pin 2
    - J30 pin 2 is attached to J31 pin 1
+
    The jumpers should be parallel to the Arduino headers. This configuration
    routes the UART RX and TX signals to the Arduino header, rather than to the
    OpenSDA circuit.
@@ -53,8 +55,8 @@ host controller interface (HCI):
 #. Attach the FRDM-KW41Z to the Arduino header on your selected main board,
    such as :ref:`mimxrt1050_evk` or :ref:`frdm_k64f`.
 
-#. Set ``-DSHIELD=frdm_kw41z`` when you invoke cmake in your Zephyr bluetooth
-   application. For example,
+#. Set ``-DSHIELD=frdm_kw41z`` when you invoke ``west build`` in
+   your Zephyr bluetooth application. For example,
 
    .. zephyr-app-commands::
       :zephyr-app: samples/bluetooth/peripheral_hr

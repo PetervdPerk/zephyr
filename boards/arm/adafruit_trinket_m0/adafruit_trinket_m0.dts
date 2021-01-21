@@ -22,6 +22,7 @@
 	/* These aliases are provided for compatibility with samples */
 	aliases {
 		led0 = &led0;
+		pwm-led0 = &pwm_led0;
 	};
 
 	leds {
@@ -31,10 +32,22 @@
 			label = "LED";
 		};
 	};
+
+	pwmleds {
+		compatible = "pwm-leds";
+
+		pwm_led0: pwm_led_0 {
+			pwms = <&tcc0 2>;
+		};
+	};
+};
+
+&cpu0 {
+	clock-frequency = <48000000>;
 };
 
 &sercom0 {
-	status = "ok";
+	status = "okay";
 	compatible = "atmel,sam0-uart";
 	current-speed = <115200>;
 	rxpo = <3>;
@@ -42,7 +55,7 @@
 };
 
 &sercom2 {
-	status = "ok";
+	status = "okay";
 	compatible = "atmel,sam0-uart";
 	current-speed = <115200>;
 	rxpo = <1>;
@@ -51,7 +64,7 @@
 
 /* Drives the on-board DotStar LED */
 &sercom1 {
-	status = "ok";
+	status = "okay";
 	compatible = "atmel,sam0-spi";
 	dipo = <2>;
 	dopo = <0>;
@@ -64,6 +77,15 @@
 		spi-max-frequency = <24000000>;
 		label = "LED1";
 	};
+};
+
+&tcc0 {
+	status = "okay";
+	compatible = "atmel,sam0-tcc-pwm";
+	/* Gives a maximum period of 1.4 s */
+	prescaler = <4>;
+
+	#pwm-cells = <1>;
 };
 
 &flash0 {
@@ -85,8 +107,9 @@
 		};
 
 		/*
-		 * The final 16 KiB is reserved for the application
-		 * and is used by NFFS if enabled.
+		 * The final 16 KiB is reserved for the application.
+		 * Storage partition will be used by FCB/LittleFS/NVS
+		 * if enabled.
 		 */
 		storage_partition: partition@3c000 {
 			label = "storage";
@@ -96,5 +119,5 @@
 };
 
 &usb0 {
-	status = "ok";
+	status = "okay";
 };

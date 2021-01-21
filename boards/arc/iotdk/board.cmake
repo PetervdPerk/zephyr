@@ -1,4 +1,6 @@
-# TODO: can this board just use the usual openocd runner?
-set(BOARD_FLASH_RUNNER em-starterkit)
-set(BOARD_DEBUG_RUNNER em-starterkit)
-board_finalize_runner_args(em-starterkit)
+# SPDX-License-Identifier: Apache-2.0
+
+board_runner_args(openocd "--use-elf")
+board_runner_args(mdb-hw "--jtag=digilent")
+include(${ZEPHYR_BASE}/boards/common/openocd.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/mdb-hw.board.cmake)

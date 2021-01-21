@@ -1,10 +1,8 @@
-zephyr_include_directories(.)
-zephyr_sources(
-  soc_pmc.c
-  soc_gpio.c
-  )
+# SPDX-License-Identifier: Apache-2.0
 
-zephyr_sources_ifdef(
-  CONFIG_ARM_MPU
-  arm_mpu_regions.c
-  )
+zephyr_include_directories(.)
+zephyr_library_sources_ifndef(CONFIG_SOC_SERIES_SAM4L soc_pmc.c)
+zephyr_library_sources_ifndef(CONFIG_SOC_SERIES_SAM4L soc_gpio.c)
+
+zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_SAM4L soc_sam4l_pm.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_SAM4L soc_sam4l_gpio.c)

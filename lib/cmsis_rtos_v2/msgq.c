@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel_structs.h>
+#include <kernel.h>
+#include <string.h>
 #include "wrapper.h"
 
 K_MEM_SLAB_DEFINE(cv2_msgq_slab, sizeof(struct cv2_msgq),
@@ -27,9 +28,9 @@ osMessageQueueId_t osMessageQueueNew(uint32_t msg_count, uint32_t msg_size,
 {
 	struct cv2_msgq *msgq;
 
-	BUILD_ASSERT_MSG(CONFIG_HEAP_MEM_POOL_SIZE >=
-			 CONFIG_CMSIS_V2_MSGQ_MAX_DYNAMIC_SIZE,
-			 "heap must be configured to be at least the max dynamic size");
+	BUILD_ASSERT(CONFIG_HEAP_MEM_POOL_SIZE >=
+		     CONFIG_CMSIS_V2_MSGQ_MAX_DYNAMIC_SIZE,
+		     "heap must be configured to be at least the max dynamic size");
 
 	if (k_is_in_isr()) {
 		return NULL;
@@ -43,7 +44,7 @@ osMessageQueueId_t osMessageQueueNew(uint32_t msg_count, uint32_t msg_size,
 		attr = &init_msgq_attrs;
 	}
 
-	if (k_mem_slab_alloc(&cv2_msgq_slab, (void **)&msgq, 100) == 0) {
+	if (k_mem_slab_alloc(&cv2_msgq_slab, (void **)&msgq, K_MSEC(100)) == 0) {
 		(void)memset(msgq, 0, sizeof(struct cv2_msgq));
 	} else {
 		return NULL;
@@ -97,13 +98,13 @@ osStatus_t osMessageQueuePut(osMessageQueueId_t msgq_id, const void *msg_ptr,
 		return osErrorParameter;
 	}
 
-	if (timeout == 0) {
+	if (timeout == 0U) {
 		retval = k_msgq_put(&msgq->z_msgq, (void *)msg_ptr, K_NO_WAIT);
 	} else if (timeout == osWaitForever) {
 		retval = k_msgq_put(&msgq->z_msgq, (void *)msg_ptr, K_FOREVER);
 	} else {
 		retval = k_msgq_put(&msgq->z_msgq, (void *)msg_ptr,
-				    __ticks_to_ms(timeout));
+				    K_TICKS(timeout));
 	}
 
 	if (retval == 0) {
@@ -135,13 +136,13 @@ osStatus_t osMessageQueueGet(osMessageQueueId_t msgq_id, void *msg_ptr,
 		return osErrorParameter;
 	}
 
-	if (timeout == 0) {
+	if (timeout == 0U) {
 		retval = k_msgq_get(&msgq->z_msgq, msg_ptr, K_NO_WAIT);
 	} else if (timeout == osWaitForever) {
 		retval = k_msgq_get(&msgq->z_msgq, msg_ptr, K_FOREVER);
 	} else {
 		retval = k_msgq_get(&msgq->z_msgq, msg_ptr,
-				    __ticks_to_ms(timeout));
+				    K_TICKS(timeout));
 	}
 
 	if (retval == 0) {

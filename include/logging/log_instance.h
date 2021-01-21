@@ -15,25 +15,29 @@ extern "C" {
 /** @brief Constant data associated with the source of log messages. */
 struct log_source_const_data {
 	const char *name;
-	u8_t level;
+	uint8_t level;
 #ifdef CONFIG_NIOS2
 	/* Workaround alert! Dummy data to ensure that structure is >8 bytes.
 	 * Nios2 uses global pointer register for structures <=8 bytes and
 	 * apparently does not handle well variables placed in custom sections.
 	 */
-	u32_t dummy;
+	uint32_t dummy;
 #endif
 };
 
 /** @brief Dynamic data associated with the source of log messages. */
 struct log_source_dynamic_data {
-	u32_t filters;
+	uint32_t filters;
 #ifdef CONFIG_NIOS2
 	/* Workaround alert! Dummy data to ensure that structure is >8 bytes.
 	 * Nios2 uses global pointer register for structures <=8 bytes and
 	 * apparently does not handle well variables placed in custom sections.
 	 */
-	u32_t dummy[2];
+	uint32_t dummy[2];
+#endif
+#if defined(CONFIG_RISCV) && defined(CONFIG_64BIT)
+	/* Workaround: RV64 needs to ensure that structure is just 8 bytes. */
+	uint32_t dummy;
 #endif
 };
 
@@ -66,14 +70,12 @@ struct log_source_dynamic_data {
  * @brief Macro for initializing a pointer to the logger instance.
  */
 
-/** @} */
-
 #ifdef CONFIG_LOG
 
 #define LOG_INSTANCE_FULL_NAME(_module_name, _inst_name) \
 	UTIL_CAT(_module_name, UTIL_CAT(_, _inst_name))
 
-#if CONFIG_LOG_RUNTIME_FILTERING
+#if defined(CONFIG_LOG_RUNTIME_FILTERING)
 #define LOG_INSTANCE_PTR_DECLARE(_name)	\
 	struct log_source_dynamic_data *_name
 

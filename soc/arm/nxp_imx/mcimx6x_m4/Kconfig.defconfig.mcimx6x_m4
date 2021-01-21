@@ -1,49 +1,34 @@
-# Kconfig - i.MX 6SoloX
-#
+# i.MX 6SoloX
+
 # Copyright (c) 2018, NXP
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if SOC_MCIMX6X_M4
 
 config SOC
-	string
 	default "mcimx6x"
 
-if CLOCK_CONTROL
-
-config CLOCK_CONTROL_IMX_CCM
-	def_bool y
-
-endif # CLOCK_CONTROL
-
-if GPIO
+config FPU
+	default y
 
 config GPIO_IMX
 	default y
-
-endif # GPIO
-
-if SERIAL
+	depends on GPIO
 
 config UART_IMX
 	default y
+	depends on SERIAL
 
-endif # SERIAL
-
-if IPM
+config I2C_IMX
+	default y
+	depends on I2C
 
 config IPM_IMX
-	def_bool y
-
-endif # IPM
-
-if COUNTER
+	default y
+	depends on IPM
 
 config COUNTER_IMX_EPIT
 	default y
-
-endif # COUNTER
+	depends on COUNTER
 
 endif # SOC_MCIMX6X_M4

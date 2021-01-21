@@ -1,22 +1,15 @@
 /*
- * Copyright (c) 2014-2015 Wind River Systems, Inc.
+ * Copyright (c) 2020 Synopsys.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
- * @brief Common parts of the linker scripts for the ARCv2/EM targets.
+ * @brief Common parts of the linker scripts for the ARCv2 targets for
+ * GNU and MWDT toolchains.
  */
 
-#define _LINKER
-#define _ASMLANGUAGE
-
 #include <linker/sections.h>
-
-#if defined(CONFIG_UART_NSIM)
-	EXTERN(_VectorTable)
-#endif
-
 #include <linker/linker-defs.h>
 #include <linker/linker-tool.h>
 
@@ -40,7 +33,7 @@
 	#elif CONFIG_ARC_MPU_VER == 3
 		#define MPU_MIN_SIZE 32
 	#endif
-	#define MPU_MIN_SIZE_ALIGN . = ALIGN(MPU_MIN_SIZE );
+	#define MPU_MIN_SIZE_ALIGN . = ALIGN(MPU_MIN_SIZE);
 	#if defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
 		#define MPU_ALIGN(region_size) \
 			. = ALIGN(MPU_MIN_SIZE); \
@@ -51,6 +44,7 @@
 	#endif
 #else
 	#define MPU_MIN_SIZE_ALIGN
+	#define MPU_ALIGN(region_size) . = ALIGN(4)
 #endif
 
 #if defined(CONFIG_XIP)
@@ -64,16 +58,16 @@ ENTRY(CONFIG_KERNEL_ENTRY)
 
 MEMORY {
 #ifdef FLASH_START
-	FLASH (rx)  : ORIGIN = FLASH_START, LENGTH = FLASH_SIZE*1k
+	FLASH (rx)  : ORIGIN = FLASH_START, LENGTH = FLASH_SIZE
 #endif
 #ifdef ICCM_START
-	ICCM  (rwx)  : ORIGIN = ICCM_START,  LENGTH = ICCM_SIZE*1k
+	ICCM  (rwx)  : ORIGIN = ICCM_START,  LENGTH = ICCM_SIZE
 #endif
 #ifdef SRAM_START
-	SRAM  (rwx) : ORIGIN = SRAM_START,  LENGTH = SRAM_SIZE*1k
+	SRAM  (rwx) : ORIGIN = SRAM_START,  LENGTH = SRAM_SIZE
 #endif
 #ifdef DCCM_START
-	DCCM  (rw)  : ORIGIN = DCCM_START,  LENGTH = DCCM_SIZE*1k
+	DCCM  (rw)  : ORIGIN = DCCM_START,  LENGTH = DCCM_SIZE
 #endif
 	/* Used by and documented in include/linker/intlist.ld */
 	IDT_LIST  (wx)      : ORIGIN = 0xFFFFF7FF, LENGTH = 2K
@@ -89,16 +83,14 @@ SECTIONS {
 		_image_rom_start = .;
 		_image_text_start = .;
 
-/* when !XIP, .text is in RAM, and vector table must be at its very start */
-
-		KEEP(*(.exc_vector_table))
-		KEEP(*(".exc_vector_table.*"))
-		KEEP(*(IRQ_VECTOR_TABLE))
-
-		*(.text)
-		*(".text.*")
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rom-start.ld>
+		*(.text .text.*)
 		*(.gnu.linkonce.t.*)
 
+	. = ALIGN(4);
 #include <linker/kobject-text.ld>
 	} GROUP_LINK_IN(ROMABLE_REGION)
 
@@ -106,29 +98,31 @@ SECTIONS {
 	_image_rodata_start = .;
 
 #include <linker/common-rom.ld>
+#include <linker/thread-local-storage.ld>
 
 	SECTION_PROLOGUE(_RODATA_SECTION_NAME,,) {
 		KEEP(*(.openocd_dbg))
 		KEEP(*(".openocd_dbg.*"))
-		*(.rodata)
+		*(".rodata")
 		*(".rodata.*")
 		*(.gnu.linkonce.r.*)
 
-#ifdef CONFIG_SOC_RODATA_LD
-#include <soc-rodata.ld>
-#endif
-
-#ifdef CONFIG_CUSTOM_RODATA_LD
-/* Located in project source directory */
-#include <custom-rodata.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rodata.ld>
 
 #include <linker/kobject-rom.ld>
-
 	} GROUP_LINK_IN(ROMABLE_REGION)
 
+#ifdef __MWDT_LINKER_CMD__
+/* TODO: add mwdt specific ROM C++ sections */
+#else
+#include <linker/cplusplus-rom.ld>
+#endif /* __MWDT_LINKER_CMD__ */
+
 	_image_rodata_end = .;
-	MPU_MIN_SIZE_ALIGN
+	MPU_ALIGN(_image_rodata_end - _image_rom_start);
 	_image_rom_end = .;
 	_image_rom_size = _image_rom_end - _image_rom_start;
 
@@ -137,6 +131,11 @@ SECTIONS {
 	GROUP_START(RAMABLE_REGION)
 
 #include <app_data_alignment.ld>
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-ram-sections.ld>
 
 #if defined(CONFIG_USERSPACE)
 #define APP_SHARED_ALIGN MPU_MIN_SIZE_ALIGN
@@ -159,7 +158,7 @@ SECTIONS {
 		__bss_start = .;
 		_image_ram_start = .;
 		__kernel_ram_start = .;
-		*(.bss)
+		*(".bss")
 		*(".bss.*")
 		*(COMMON)
 		*(".kernel_bss.*")
@@ -171,37 +170,20 @@ SECTIONS {
 		__bss_end = ALIGN(4);
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
 
-	SECTION_PROLOGUE(_NOINIT_SECTION_NAME,(NOLOAD),) {
-		/*
-		 * This section is used for non-initialized objects that
-		 * will not be cleared during the boot process.
-		 */
-		 *(.noinit)
-		 *(".noinit.*")
-		 *(".kernel_noinit.*")
-
-#ifdef CONFIG_SOC_NOINIT_LD
-#include <soc-noinit.ld>
-#endif
-
-	} GROUP_LINK_IN(RAMABLE_REGION)
+#include <linker/common-noinit.ld>
 
 	SECTION_DATA_PROLOGUE(_DATA_SECTION_NAME,,) {
 
 /* when XIP, .text is in ROM, but vector table must be at start of .data */
 		__data_ram_start = .;
-		*(.data)
+		*(".data")
 		*(".data.*")
 		*(".kernel.*")
 
-#ifdef CONFIG_SOC_RWDATA_LD
-#include <soc-rwdata.ld>
-#endif
-
-#ifdef CONFIG_CUSTOM_RWDATA_LD
-/* Located in project source directory */
-#include <custom-rwdata.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-rwdata.ld>
 
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
@@ -210,10 +192,14 @@ SECTIONS {
 #include <linker/common-ram.ld>
 #include <linker/kobject.ld>
 
+#ifdef __MWDT_LINKER_CMD__
+/* TODO: add mwdt specific RAM C++ sections */
+#else
+#include <linker/cplusplus-ram.ld>
+#endif /* __MWDT_LINKER_CMD__ */
+
 	__data_ram_end = .;
-
 	MPU_MIN_SIZE_ALIGN
-
 	/* Define linker symbols */
 	_image_ram_end = .;
 	_end = .; /* end of image */
@@ -223,23 +209,23 @@ SECTIONS {
 
 	GROUP_END(RAMABLE_REGION)
 
-#ifdef CONFIG_CUSTOM_SECTIONS_LD
-/* Located in project source directory */
-#include <custom-sections.ld>
-#endif
-
-#ifdef CONFIG_GEN_ISR_TABLES
-#include <linker/intlist.ld>
-#endif
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function.
+ */
+#include <snippets-sections.ld>
 
 #include <linker/debug-sections.ld>
 
-
-    SECTION_PROLOGUE(.ARC.attributes, 0,)
-	{
-	KEEP(*(.ARC.attributes))
-	KEEP(*(.gnu.attributes))
+	SECTION_PROLOGUE(.ARC.attributes, 0,) {
+		KEEP(*(.ARC.attributes))
+		KEEP(*(.gnu.attributes))
 	}
 
-    /DISCARD/ : { *(.note.GNU-stack) }
+	/DISCARD/ : {
+		*(.note.GNU-stack)
+		*(.got.plt)
+		*(.igot.plt)
+		*(.got)
+		*(.igot)
 	}
+}

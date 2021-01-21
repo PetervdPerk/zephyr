@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 zephyr_library()
 zephyr_library_compile_definitions_ifdef(
   CONFIG_NEWLIB_LIBC __LINUX_ERRNO_EXTENSIONS__
@@ -16,3 +18,5 @@ if(CONFIG_NET_CONFIG_SETTINGS)
     bt_settings.c
   )
 endif()
+
+zephyr_library_sources_ifdef(CONFIG_NET_CONFIG_CLOCK_SNTP_INIT init_clock_sntp.c)

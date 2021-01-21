@@ -8,8 +8,10 @@ configurations that support these registers.
 
 .. note::
     Floating point services are currently available only for boards
-    based on the ARM Cortex-M4 or the Intel x86 architectures. The
-    services provided are architecture specific.
+    based on ARM Cortex-M SoCs supporting the Floating Point Extension,
+    the Intel x86 architecture, the SPARC architecture and ARCv2 SoCs
+    supporting the Floating Point Extension. The services provided
+    are architecture specific.
 
     The kernel does not support the use of floating point registers by ISRs.
 
@@ -40,13 +42,14 @@ Unshared FP registers mode
 This mode is used when the application has only a single thread
 that uses floating point registers.
 
-The kernel initializes the floating point registers so they can be used
-by any thread. The floating point registers are left unchanged
-whenever a context switch occurs.
+On x86 platforms, the kernel initializes the floating point registers so they can
+be used by any thread (initialization in skipped on ARM Cortex-M platforms and
+ARCv2 platforms). The floating point registers are left unchanged whenever a
+context switch occurs.
 
 .. note::
-    Incorrect operation may result if two or more threads use
-    floating point registers, as the kernel does not attempt to detect
+    The behavior is undefined, if two or more threads attempt to use
+    the floating point registers, as the kernel does not attempt to detect
     (or prevent) multiple threads from using these registers.
 
 Shared FP registers mode
@@ -63,16 +66,147 @@ the kernel supports one or more of the following thread sub-classes:
 * SSE user: A thread that can use both the standard floating point registers
   and SSE registers
 
-The kernel initializes the floating point registers so they can be used
+The kernel initializes and enables access to the floating point registers,
+so they can be used
 by any thread, then saves and restores these registers during
 context switches to ensure the computations performed by each FPU user
 or SSE user are not impacted by the computations performed by the other users.
 
-On the ARM Cortex-M4 architecture the kernel treats *all* threads
-as FPU users when shared FP registers mode is enabled. This means that the
-floating point registers are saved and restored during a context switch, even
-when the associated threads are not using them. Each thread must provide
-an extra 132 bytes of stack space where these register values can be saved.
+ARM Cortex-M architecture (with the Floating Point Extension)
+-------------------------------------------------------------
+
+On the ARM Cortex-M architecture with the Floating Point Extension, the kernel
+treats *all* threads as FPU users when shared FP registers mode is enabled.
+This means that any thread is allowed to access the floating point registers.
+The ARM kernel automatically detects that a given thread is using the floating
+point registers the first time the thread accesses them.
+
+Pretag a thread that intends to use the FP registers by
+using one of the techniques listed below.
+
+* A statically-created ARM thread can be pretagged by passing the
+  :c:macro:`K_FP_REGS` option to :c:macro:`K_THREAD_DEFINE`.
+
+* A dynamically-created ARM thread can be pretagged by passing the
+  :c:macro:`K_FP_REGS` option to :c:func:`k_thread_create`.
+
+Pretagging a thread with the :c:macro:`K_FP_REGS` option instructs the
+MPU-based stack protection mechanism to properly configure the size of
+the thread's guard region to always guarantee stack overflow detection.
+
+During thread context switching the ARM kernel saves the *callee-saved*
+floating point registers, if the switched-out thread has been using them.
+Additionally, the *caller-saved* floating point registers are saved on
+the thread's stack. If the switched-in thread has been using the floating
+point registers, the kernel restores the *callee-saved* FP registers of
+the switched-in thread and the *caller-saved* FP context is restored from
+the thread's stack. Thus, the kernel does not save or restore the FP
+context of threads that are not using the FP registers.
+
+Each thread that intends to use the floating point registers must provide
+an extra 72 bytes of stack space where the callee-saved FP context can
+be saved.
+
+`Lazy Stacking
+<http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dai0298a/DAFGGBJD.html>`_
+is currently enabled in Zephyr applications on ARM Cortex-M
+architecture, minimizing interrupt latency, when the floating
+point context is active.
+
+If an ARM thread does not require use of the floating point registers any
+more, it can call :c:func:`k_float_disable`. This instructs the kernel
+not to save or restore its FP context during thread context switching.
+
+ARCv2 architecture
+------------------
+
+On the ARCv2 architecture, the kernel treats each thread as a non-user
+or FPU user and the thread must be tagged by one of the
+following techniques.
+
+* A statically-created ARC thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` option to :c:macro:`K_THREAD_DEFINE`.
+
+* A dynamically-created ARC thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` to :c:func:`k_thread_create`.
+
+If an ARC thread does not require use of the floating point registers any
+more, it can call :c:func:`k_float_disable`. This instructs the kernel
+not to save or restore its FP context during thread context switching.
+
+During thread context switching the ARC kernel saves the *callee-saved*
+floating point registers, if the switched-out thread has been using them.
+Additionally, the *caller-saved* floating point registers are saved on
+the thread's stack. If the switched-in thread has been using the floating
+point registers, the kernel restores the *callee-saved* FP registers of
+the switched-in thread and the *caller-saved* FP context is restored from
+the thread's stack. Thus, the kernel does not save or restore the FP
+context of threads that are not using the FP registers. An extra 16 bytes
+(single floating point hardware) or 32 bytes (double floating point hardware)
+of stack space is required to load and store floating point registers.
+
+RISC-V architecture
+-------------------
+
+On the RISC-V architecture, the kernel treats each thread as a non-user
+or FPU user and the thread must be tagged by one of the
+following techniques:
+
+* A statically-created RISC-V thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` option to :c:macro:`K_THREAD_DEFINE`.
+
+* A dynamically-created RISC-V thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` to :c:func:`k_thread_create`.
+
+* A running RISC-V thread can be tagged by calling :c:func:`k_float_enable`.
+  This function can only be called from the thread itself.
+
+If a RISC-V thread no longer requires the use of the floating point registers,
+it can call :c:func:`k_float_disable`. This instructs the kernel not to
+save or restore its FP context during thread context switching. This function
+can only be called from the thread itself.
+
+During thread context switching the RISC-V kernel saves the *callee-saved*
+floating point registers, if the switched-out thread is tagged with
+:c:macro:`K_FP_REGS`. Additionally, the *caller-saved* floating point
+registers are saved on the thread's stack. If the switched-in thread has been
+tagged with :c:macro:`K_FP_REGS`, then the kernel restores the *callee-saved*
+FP registers of the switched-in thread and the *caller-saved* FP context is
+restored from the thread's stack. Thus, the kernel does not save or restore the
+FP context of threads that are not using the FP registers. An extra 84 bytes
+(single floating point hardware) or 164 bytes (double floating point hardware)
+of stack space is required to load and store floating point registers.
+
+SPARC architecture
+------------------
+
+On the SPARC architecture, the kernel treats each thread as a non-user
+or FPU user and the thread must be tagged by one of the
+following techniques:
+
+* A statically-created thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` option to :c:macro:`K_THREAD_DEFINE`.
+
+* A dynamically-created thread can be tagged by passing the
+  :c:macro:`K_FP_REGS` to :c:func:`k_thread_create`.
+
+During thread context switch at exit from interrupt handler, the SPARC
+kernel saves *all* floating point registers, if the FPU was enabled in
+the switched-out thread. Floating point registers are saved on the thread's
+stack. Floating point registers are restored when a thread context is restored
+iff they were saved at the context save. Saving and restoring of the floating
+point registers is synchronous and thus not lazy. The FPU is always disabled
+when an ISR is called (independent of :option:`CONFIG_FPU_SHARING`).
+
+Floating point disabling with :c:func:`k_float_disable` is not implemented.
+
+When :option:`CONFIG_FPU_SHARING` is used, then 136 bytes of stack space
+is required for each FPU user thread to load and store floating point
+registers. No extra stack is required if :option:`CONFIG_FPU_SHARING` is
+not used.
+
+x86 architecture
+----------------
 
 On the x86 architecture the kernel treats each thread as a non-user,
 FPU user or SSE user on a case-by-case basis. A "lazy save" algorithm is used
@@ -106,19 +240,19 @@ pretag a thread using one of the techniques listed below.
 
 * A dynamically-created x86 thread can be pretagged by passing the
   :c:macro:`K_FP_REGS` or :c:macro:`K_SSE_REGS` option to
-  :cpp:func:`k_thread_create()`.
+  :c:func:`k_thread_create`.
 
 * An already-created x86 thread can pretag itself once it has started
   by passing the :c:macro:`K_FP_REGS` or :c:macro:`K_SSE_REGS` option to
-  :cpp:func:`k_float_enable()`.
+  :c:func:`k_float_enable`.
 
 If an x86 thread uses the floating point registers infrequently it can call
-:cpp:func:`k_float_disable()` to remove its tagging as an FPU user or SSE user.
+:c:func:`k_float_disable` to remove its tagging as an FPU user or SSE user.
 This eliminates the need for the kernel to take steps to preserve
 the contents of the floating point registers during context switches
 when there is no need to do so.
 When the thread again needs to use the floating point registers it can re-tag
-itself as an FPU user or SSE user by calling :cpp:func:`k_float_enable()`.
+itself as an FPU user or SSE user by calling :c:func:`k_float_enable`.
 
 Implementation
 **************
@@ -159,12 +293,12 @@ perform floating point operations.
 Configuration Options
 *********************
 
-To configure unshared FP registers mode, enable the :option:`CONFIG_FLOAT`
-configuration option and leave the :option:`CONFIG_FP_SHARING` configuration
+To configure unshared FP registers mode, enable the :option:`CONFIG_FPU`
+configuration option and leave the :option:`CONFIG_FPU_SHARING` configuration
 option disabled.
 
-To configure shared FP registers mode, enable both the :option:`CONFIG_FLOAT`
-configuration option and the :option:`CONFIG_FP_SHARING` configuration option.
+To configure shared FP registers mode, enable both the :option:`CONFIG_FPU`
+configuration option and the :option:`CONFIG_FPU_SHARING` configuration option.
 Also, ensure that any thread that uses the floating point registers has
 sufficient added stack space for saving floating point register values
 during context switches, as described above.
@@ -177,4 +311,3 @@ API Reference
 
 .. doxygengroup:: float_apis
    :project: Zephyr
-

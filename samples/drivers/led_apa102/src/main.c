@@ -13,10 +13,10 @@
 LOG_MODULE_REGISTER(main);
 
 #include <zephyr.h>
-#include <led_strip.h>
+#include <drivers/led_strip.h>
 #include <device.h>
-#include <spi.h>
-#include <misc/util.h>
+#include <drivers/spi.h>
+#include <sys/util.h>
 
 /*
  * Number of RGB LEDs in the LED strip, adjust as needed.
@@ -53,14 +53,14 @@ const struct led_rgb *color_at(size_t time, size_t i)
 #define DELAY_TIME K_MSEC(40)
 void main(void)
 {
-	struct device *strip;
+	const struct device *strip;
 	size_t i, time;
 
-	strip = device_get_binding(DT_APA_APA102_0_LABEL);
+	strip = device_get_binding(DT_LABEL(DT_INST(0, apa_apa102)));
 	if (strip) {
-		LOG_INF("Found LED strip device %s", DT_APA_APA102_0_LABEL);
+		LOG_INF("Found LED strip device %s", DT_LABEL(DT_INST(0, apa_apa102)));
 	} else {
-		LOG_ERR("LED strip device %s not found", DT_APA_APA102_0_LABEL);
+		LOG_ERR("LED strip device %s not found", DT_LABEL(DT_INST(0, apa_apa102)));
 		return;
 	}
 

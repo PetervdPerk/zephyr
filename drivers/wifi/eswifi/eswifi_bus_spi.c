@@ -3,27 +3,28 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#define LOG_LEVEL CONFIG_WIFI_LOG_LEVEL
-#include <logging/log.h>
-LOG_MODULE_REGISTER(wifi_eswifi_bus_spi);
+
+#define DT_DRV_COMPAT inventek_eswifi
+#include "eswifi_log.h"
+LOG_MODULE_DECLARE(LOG_MODULE_NAME);
 
 #include <zephyr.h>
 #include <kernel.h>
 #include <device.h>
 #include <string.h>
 #include <errno.h>
-#include <gpio.h>
-#include <spi.h>
+#include <drivers/gpio.h>
+#include <drivers/spi.h>
 
 #include "eswifi.h"
 
 #define ESWIFI_SPI_THREAD_STACK_SIZE 1024
-K_THREAD_STACK_MEMBER(eswifi_spi_poll_stack, ESWIFI_SPI_THREAD_STACK_SIZE);
+K_KERNEL_STACK_MEMBER(eswifi_spi_poll_stack, ESWIFI_SPI_THREAD_STACK_SIZE);
 
 #define SPI_READ_CHUNK_SIZE 32
 
 struct eswifi_spi_data {
-	struct device *spi_dev;
+	const struct device *spi_dev;
 	struct eswifi_gpio csn;
 	struct eswifi_gpio dr;
 	struct k_thread poll_thread;
@@ -35,11 +36,7 @@ static struct eswifi_spi_data eswifi_spi0; /* Static instance */
 
 static bool eswifi_spi_cmddata_ready(struct eswifi_spi_data *spi)
 {
-	int value;
-
-	gpio_pin_read(spi->dr.dev, spi->dr.pin, &value);
-
-	return value ? true : false;
+	return gpio_pin_get(spi->dr.dev, spi->dr.pin) > 0;
 }
 
 static int eswifi_spi_wait_cmddata_ready(struct eswifi_spi_data *spi)
@@ -48,7 +45,7 @@ static int eswifi_spi_wait_cmddata_ready(struct eswifi_spi_data *spi)
 
 	do {
 		/* allow other threads to be scheduled */
-		k_sleep(1);
+		k_sleep(K_MSEC(1));
 	} while (!eswifi_spi_cmddata_ready(spi) && --max_retries);
 
 	return max_retries ? 0 : -ETIMEDOUT;
@@ -102,7 +99,7 @@ static int eswifi_spi_request(struct eswifi_dev *eswifi, char *cmd, size_t clen,
 			      char *rsp, size_t rlen)
 {
 	struct eswifi_spi_data *spi = eswifi->bus_data;
-	unsigned int offset = 0, to_read = SPI_READ_CHUNK_SIZE;
+	unsigned int offset = 0U, to_read = SPI_READ_CHUNK_SIZE;
 	char tmp[2];
 	int err;
 
@@ -169,7 +166,7 @@ data:
 	/* Flush remaining data if receiving buffer not large enough */
 	while (eswifi_spi_cmddata_ready(spi)) {
 		eswifi_spi_read(eswifi, tmp, 2);
-		k_sleep(1);
+		k_sleep(K_MSEC(1));
 	}
 
 	/* Our device is flagged with SPI_HOLD_ON_CS|SPI_LOCK_ON, release */
@@ -182,15 +179,34 @@ data:
 
 static void eswifi_spi_read_msg(struct eswifi_dev *eswifi)
 {
+	const char startstr[] = "[SOMA]";
+	const char endstr[] = "[EOMA]";
 	char cmd[] = "MR\r";
+	size_t msg_len;
 	char *rsp;
-	int err;
+	int ret;
+
+	LOG_DBG("");
 
 	eswifi_lock(eswifi);
 
-	err = eswifi_at_cmd_rsp(eswifi, cmd, &rsp);
-	if (err < 0) {
-		LOG_ERR("Unable to read msg %d", err);
+	ret = eswifi_at_cmd_rsp(eswifi, cmd, &rsp);
+	if (ret < 0) {
+		LOG_ERR("Unable to read msg %d", ret);
+		eswifi_unlock(eswifi);
+		return;
+	}
+
+	if (strncmp(rsp, startstr, sizeof(endstr) - 1)) {
+		LOG_ERR("Malformed async msg");
+		eswifi_unlock(eswifi);
+		return;
+	}
+
+	/* \r\n[SOMA]...[EOMA]\r\nOK\r\n> */
+	msg_len = ret - (sizeof(startstr) - 1) - (sizeof(endstr) - 1);
+	if (msg_len > 0) {
+		eswifi_async_msg(eswifi, rsp + sizeof(endstr) - 1, msg_len);
 	}
 
 	eswifi_unlock(eswifi);
@@ -211,7 +227,7 @@ int eswifi_spi_init(struct eswifi_dev *eswifi)
 	struct eswifi_spi_data *spi = &eswifi_spi0; /* Static instance */
 
 	/* SPI DEV */
-	spi->spi_dev = device_get_binding(DT_INVENTEK_ESWIFI_ESWIFI0_BUS_NAME);
+	spi->spi_dev = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (!spi->spi_dev) {
 		LOG_ERR("Failed to initialize SPI driver");
 		return -ENODEV;
@@ -219,26 +235,28 @@ int eswifi_spi_init(struct eswifi_dev *eswifi)
 
 	/* SPI DATA READY PIN */
 	spi->dr.dev = device_get_binding(
-			DT_INVENTEK_ESWIFI_ESWIFI0_DATA_GPIOS_CONTROLLER);
+			DT_INST_GPIO_LABEL(0, data_gpios));
 	if (!spi->dr.dev) {
 		LOG_ERR("Failed to initialize GPIO driver: %s",
-			    DT_INVENTEK_ESWIFI_ESWIFI0_DATA_GPIOS_CONTROLLER);
+			    DT_INST_GPIO_LABEL(0, data_gpios));
 		return -ENODEV;
 	}
-	spi->dr.pin = DT_INVENTEK_ESWIFI_ESWIFI0_DATA_GPIOS_PIN;
-	gpio_pin_configure(spi->dr.dev, spi->dr.pin, GPIO_DIR_IN);
-
+	spi->dr.pin = DT_INST_GPIO_PIN(0, data_gpios);
+	gpio_pin_configure(spi->dr.dev, spi->dr.pin,
+			   DT_INST_GPIO_FLAGS(0, data_gpios) |
+			   GPIO_INPUT);
 
 	/* SPI CONFIG/CS */
-	spi->spi_cfg.frequency = DT_INVENTEK_ESWIFI_ESWIFI0_SPI_MAX_FREQUENCY;
+	spi->spi_cfg.frequency = DT_INST_PROP(0, spi_max_frequency);
 	spi->spi_cfg.operation = (SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB |
 				  SPI_WORD_SET(16) | SPI_LINES_SINGLE |
 				  SPI_HOLD_ON_CS | SPI_LOCK_ON);
-	spi->spi_cfg.slave = DT_INVENTEK_ESWIFI_ESWIFI0_BASE_ADDRESS;
+	spi->spi_cfg.slave = DT_INST_REG_ADDR(0);
 	spi->spi_cs.gpio_dev =
-		device_get_binding(DT_INVENTEK_ESWIFI_ESWIFI0_CS_GPIO_CONTROLLER);
-	spi->spi_cs.gpio_pin = DT_INVENTEK_ESWIFI_ESWIFI0_CS_GPIO_PIN;
-	spi->spi_cs.delay = 1000;
+		device_get_binding(DT_INST_SPI_DEV_CS_GPIOS_LABEL(0));
+	spi->spi_cs.gpio_pin = DT_INST_SPI_DEV_CS_GPIOS_PIN(0);
+	spi->spi_cs.gpio_dt_flags = DT_INST_SPI_DEV_CS_GPIOS_FLAGS(0);
+	spi->spi_cs.delay = 1000U;
 	spi->spi_cfg.cs = &spi->spi_cs;
 
 	eswifi->bus_data = spi;
@@ -254,7 +272,12 @@ int eswifi_spi_init(struct eswifi_dev *eswifi)
 	return 0;
 }
 
-struct eswifi_bus_ops eswifi_bus_ops_spi = {
+static struct eswifi_bus_ops eswifi_bus_ops_spi = {
 	.init = eswifi_spi_init,
 	.request = eswifi_spi_request,
 };
+
+struct eswifi_bus_ops *eswifi_get_bus(void)
+{
+	return &eswifi_bus_ops_spi;
+}

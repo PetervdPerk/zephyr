@@ -31,19 +31,26 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define LIGHT_POWER_FACTOR_ID			5820
 #define LIGHT_COLOUR_ID				5706
 #define LIGHT_SENSOR_UNITS_ID			5701
+#define LIGHT_APPLICATION_TYPE_ID		5750
 
-#define LIGHT_MAX_ID		7
+#define LIGHT_MAX_ID		8
 
 #define MAX_INSTANCE_COUNT	CONFIG_LWM2M_IPSO_LIGHT_CONTROL_INSTANCE_COUNT
 
 #define LIGHT_STRING_SHORT	8
 #define LIGHT_STRING_LONG       64
 
+/*
+ * Calculate resource instances as follows:
+ * start with LIGHT_MAX_ID
+ */
+#define RESOURCE_INSTANCE_COUNT	(LIGHT_MAX_ID)
+
 /* resource state variables */
 static bool on_off_value[MAX_INSTANCE_COUNT];
-static u8_t dimmer_value[MAX_INSTANCE_COUNT];
-static s32_t on_time_value[MAX_INSTANCE_COUNT];
-static u32_t on_time_offset[MAX_INSTANCE_COUNT];
+static uint8_t dimmer_value[MAX_INSTANCE_COUNT];
+static int32_t on_time_value[MAX_INSTANCE_COUNT];
+static uint32_t on_time_offset[MAX_INSTANCE_COUNT];
 static float32_value_t cumulative_active_value[MAX_INSTANCE_COUNT];
 static float32_value_t power_factor_value[MAX_INSTANCE_COUNT];
 static char colour[MAX_INSTANCE_COUNT][LIGHT_STRING_LONG];
@@ -58,12 +65,16 @@ static struct lwm2m_engine_obj_field fields[] = {
 	OBJ_FIELD_DATA(LIGHT_POWER_FACTOR_ID, R_OPT, FLOAT32),
 	OBJ_FIELD_DATA(LIGHT_COLOUR_ID, RW_OPT, STRING),
 	OBJ_FIELD_DATA(LIGHT_SENSOR_UNITS_ID, R_OPT, STRING),
+	OBJ_FIELD_DATA(LIGHT_APPLICATION_TYPE_ID, RW_OPT, STRING),
 };
 
 static struct lwm2m_engine_obj_inst inst[MAX_INSTANCE_COUNT];
-static struct lwm2m_engine_res_inst res[MAX_INSTANCE_COUNT][LIGHT_MAX_ID];
+static struct lwm2m_engine_res res[MAX_INSTANCE_COUNT][LIGHT_MAX_ID];
+static struct lwm2m_engine_res_inst
+		res_inst[MAX_INSTANCE_COUNT][RESOURCE_INSTANCE_COUNT];
 
-static void *on_time_read_cb(u16_t obj_inst_id, size_t *data_len)
+static void *on_time_read_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
+			     size_t *data_len)
 {
 	int i;
 
@@ -84,18 +95,19 @@ static void *on_time_read_cb(u16_t obj_inst_id, size_t *data_len)
 	return NULL;
 }
 
-static int on_time_post_write_cb(u16_t obj_inst_id,
-				 u8_t *data, u16_t data_len,
+static int on_time_post_write_cb(uint16_t obj_inst_id,
+				 uint16_t res_id, uint16_t res_inst_id,
+				 uint8_t *data, uint16_t data_len,
 				 bool last_block, size_t total_size)
 {
 	int i;
 
-	if (data_len != 4) {
+	if (data_len != 4U) {
 		LOG_ERR("unknown size %u", data_len);
 		return -EINVAL;
 	}
 
-	s32_t counter = *(s32_t *) data;
+	int32_t counter = *(int32_t *) data;
 
 	for (i = 0; i < MAX_INSTANCE_COUNT; i++) {
 		if (!inst[i].obj || inst[i].obj_inst_id != obj_inst_id) {
@@ -104,7 +116,7 @@ static int on_time_post_write_cb(u16_t obj_inst_id,
 
 		if (counter == 0) {
 			on_time_offset[i] =
-				(s32_t)(k_uptime_get() / MSEC_PER_SEC);
+				(int32_t)(k_uptime_get() / MSEC_PER_SEC);
 		}
 
 		return 0;
@@ -113,9 +125,9 @@ static int on_time_post_write_cb(u16_t obj_inst_id,
 	return -ENOENT;
 }
 
-static struct lwm2m_engine_obj_inst *light_control_create(u16_t obj_inst_id)
+static struct lwm2m_engine_obj_inst *light_control_create(uint16_t obj_inst_id)
 {
-	int index, avail = -1, i = 0;
+	int index, avail = -1, i = 0, j = 0;
 
 	/* Check that there is no other instance with this ID */
 	for (index = 0; index < MAX_INSTANCE_COUNT; index++) {
@@ -149,23 +161,35 @@ static struct lwm2m_engine_obj_inst *light_control_create(u16_t obj_inst_id)
 	colour[avail][0] = '\0';
 	units[avail][0] = '\0';
 
+	(void)memset(res[avail], 0,
+		     sizeof(res[avail][0]) * ARRAY_SIZE(res[avail]));
+	init_res_instance(res_inst[avail], ARRAY_SIZE(res_inst[avail]));
+
 	/* initialize instance resource data */
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_ON_OFF_ID,
-		&on_off_value[avail], sizeof(*on_off_value));
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_DIMMER_ID,
-		&dimmer_value[avail], sizeof(*dimmer_value));
-	INIT_OBJ_RES(res[avail], i, LIGHT_ON_TIME_ID, 0, &on_time_value[avail],
-		sizeof(*on_time_value), on_time_read_cb,
-		NULL, on_time_post_write_cb, NULL);
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_CUMULATIVE_ACTIVE_POWER_ID,
-		&cumulative_active_value[avail],
-		sizeof(*cumulative_active_value));
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_POWER_FACTOR_ID,
-		&power_factor_value[avail], sizeof(*power_factor_value));
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_COLOUR_ID,
-		colour[avail], LIGHT_STRING_LONG);
-	INIT_OBJ_RES_DATA(res[avail], i, LIGHT_SENSOR_UNITS_ID,
-		units[avail], LIGHT_STRING_SHORT);
+	INIT_OBJ_RES_DATA(LIGHT_ON_OFF_ID, res[avail], i, res_inst[avail], j,
+			  &on_off_value[avail], sizeof(*on_off_value));
+	INIT_OBJ_RES_DATA(LIGHT_DIMMER_ID, res[avail], i, res_inst[avail], j,
+			  &dimmer_value[avail], sizeof(*dimmer_value));
+	INIT_OBJ_RES(LIGHT_ON_TIME_ID, res[avail], i,
+		     res_inst[avail], j, 1, false, true,
+		     &on_time_value[avail], sizeof(*on_time_value),
+		     on_time_read_cb, NULL, on_time_post_write_cb, NULL);
+	INIT_OBJ_RES_DATA(LIGHT_CUMULATIVE_ACTIVE_POWER_ID, res[avail], i,
+			  res_inst[avail], j,
+			  &cumulative_active_value[avail],
+			  sizeof(*cumulative_active_value));
+	INIT_OBJ_RES_DATA(LIGHT_POWER_FACTOR_ID, res[avail], i,
+			  res_inst[avail], j,
+			  &power_factor_value[avail],
+			  sizeof(*power_factor_value));
+	INIT_OBJ_RES_DATA(LIGHT_COLOUR_ID, res[avail], i,
+			  res_inst[avail], j,
+			  colour[avail], LIGHT_STRING_LONG);
+	INIT_OBJ_RES_DATA(LIGHT_SENSOR_UNITS_ID, res[avail], i,
+			  res_inst[avail], j,
+			  units[avail], LIGHT_STRING_SHORT);
+	INIT_OBJ_RES_OPTDATA(LIGHT_APPLICATION_TYPE_ID, res[avail], i,
+			     res_inst[avail], j);
 
 	inst[avail].resources = res[avail];
 	inst[avail].resource_count = i;
@@ -175,13 +199,8 @@ static struct lwm2m_engine_obj_inst *light_control_create(u16_t obj_inst_id)
 	return &inst[avail];
 }
 
-static int ipso_light_control_init(struct device *dev)
+static int ipso_light_control_init(const struct device *dev)
 {
-	/* Set default values */
-	(void)memset(inst, 0, sizeof(*inst) * MAX_INSTANCE_COUNT);
-	(void)memset(res, 0, sizeof(struct lwm2m_engine_res_inst) *
-			MAX_INSTANCE_COUNT * LIGHT_MAX_ID);
-
 	light_control.obj_id = IPSO_OBJECT_LIGHT_CONTROL_ID;
 	light_control.fields = fields;
 	light_control.field_count = ARRAY_SIZE(fields);

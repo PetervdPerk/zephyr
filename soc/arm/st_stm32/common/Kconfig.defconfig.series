@@ -1,98 +1,84 @@
-# Kconfig.defconfig.series - ST Microelectronics STM32 all MCU lines
-#
+# ST Microelectronics STM32 all MCU lines
+
 # Copyright (c) 2017, I-SENSE group of ICCS
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 # Here are set all the Kconfig symbols common to the whole STM32 family
 
 if SOC_FAMILY_STM32
 
-if SERIAL
+config CORTEX_M_SYSTICK
+	bool
+	default y
+	depends on !STM32_LPTIM_TIMER
+
+# set the tick per sec as a divider of the LPTIM clock source
+config SYS_CLOCK_TICKS_PER_SEC
+	default 4096 if STM32_LPTIM_TIMER && STM32_LPTIM_CLOCK_LSE
+	default 4000 if STM32_LPTIM_TIMER && STM32_LPTIM_CLOCK_LSI
+
+config CLOCK_CONTROL_STM32_CUBE
+	default y
+	depends on CLOCK_CONTROL
 
 config UART_STM32
 	default y
-
-endif #SERIAL
+	depends on SERIAL
 
 if GPIO
 
 config GPIO_STM32
 	default y
 
-config GPIO_STM32_PORTA
-	default y
-
-config GPIO_STM32_PORTB
-	default y
-
-config GPIO_STM32_PORTC
-	default y
-
-endif #GPIO
-
-if PINMUX
+endif # GPIO
 
 config PINMUX_STM32
 	default y
-
-endif #PINMUX
+	depends on PINMUX
 
 if WATCHDOG
 
 config IWDG_STM32
 	default y
 
-endif # WATCHDOG
+config WWDG_STM32
+	default n
 
-if PWM
+endif # WATCHDOG
 
 config PWM_STM32
 	default y
-
-endif # PWM
-
-if SPI
+	depends on PWM
 
 config SPI_STM32
 	default y
+	depends on SPI
 
-endif # SPI
-
-if I2C
-
-config I2C_STM32
+config I2S_STM32
 	default y
-
-endif
-
-if USB
+	depends on I2S
 
 config USB_DC_STM32
 	default y
-
-endif # USB
-
-if RTC
-
-config RTC_STM32
-	default y
-
-endif # RTC
-
-if COUNTER
+	depends on USB
 
 config COUNTER_RTC_STM32
 	default y
+	depends on COUNTER
 
-endif # COUNTER
+config ADC_STM32
+	default y
+	depends on ADC
 
-if CAN
+if DMA
 
-config CAN_STM32
+config DMA_STM32
 	default y
 
-endif
+endif # DMA
+
+config MEMC_STM32
+	default y
+	depends on MEMC
 
 endif # SOC_FAMILY_STM32

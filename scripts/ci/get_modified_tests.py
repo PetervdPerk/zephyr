@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 
 # A script to generate a list of tests that have changed or added and create an
-# arguemnts file for sanitycheck to allow running those tests with --all
+# arguments file for twister to allow running those tests with --all
 
-import sys
-import re, os
-from email.utils import parseaddr
+import os
 import sh
 import logging
 import argparse
@@ -42,7 +41,7 @@ def init_logs():
 
 def parse_args():
     parser = argparse.ArgumentParser(
-                description="Generate a sanitycheck argument for for tests "
+                description="Generate a twister argument for for tests "
                             " that have changed")
     parser.add_argument('-c', '--commits', default=None,
             help="Commit range in the form: a..b")
@@ -53,7 +52,9 @@ def main():
     if not args.commits:
         exit(1)
 
-    commit = sh.git("diff","--name-only", args.commits, **sh_special_args)
+    # pylint does not like the 'sh' library
+    # pylint: disable=too-many-function-args,unexpected-keyword-arg
+    commit = sh.git("diff", "--name-only", args.commits, **sh_special_args)
     files = commit.split("\n")
     tests = set()
     for f in files:
@@ -72,4 +73,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

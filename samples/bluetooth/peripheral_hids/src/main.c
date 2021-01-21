@@ -10,8 +10,8 @@
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <misc/printk.h>
-#include <misc/byteorder.h>
+#include <sys/printk.h>
+#include <sys/byteorder.h>
 #include <zephyr.h>
 
 #include <settings/settings.h>
@@ -22,17 +22,16 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
-#include <gatt/bas.h>
-#include <gatt/hog.h>
+#include "hog.h"
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL,
-		      0x12, 0x18, /* HID Service */
-		      0x0f, 0x18), /* Battery Service */
+		      BT_UUID_16_ENCODE(BT_UUID_HIDS_VAL),
+		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
 };
 
-static void connected(struct bt_conn *conn, u8_t err)
+static void connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
@@ -45,27 +44,33 @@ static void connected(struct bt_conn *conn, u8_t err)
 
 	printk("Connected %s\n", addr);
 
-	if (bt_conn_security(conn, BT_SECURITY_MEDIUM)) {
+	if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
 		printk("Failed to set security\n");
 	}
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected from %s (reason %u)\n", addr, reason);
+	printk("Disconnected from %s (reason 0x%02x)\n", addr, reason);
 }
 
-static void security_changed(struct bt_conn *conn, bt_security_t level)
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Security changed: %s level %u\n", addr, level);
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+		       err);
+	}
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -83,7 +88,6 @@ static void bt_ready(int err)
 
 	printk("Bluetooth initialized\n");
 
-	bas_init();
 	hog_init();
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {

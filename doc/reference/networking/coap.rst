@@ -22,7 +22,7 @@ is implemented using plain buffers. Users of the API create sockets
 for communication and pass the buffer to the library for parsing and other
 purposes. The library itself doesn't create any sockets for users.
 
-On top of CoAP, Zephyr has support for LWM2M “Lightweight Machine 2 Machine”
+On top of CoAP, Zephyr has support for LWM2M "Lightweight Machine 2 Machine"
 protocol, a simple, low-cost remote management and service enablement mechanism.
 See :ref:`lwm2m_interface` for more information.
 
@@ -67,7 +67,7 @@ An application reads data from the socket and passes the buffer to the CoAP libr
 to parse the message. If the CoAP message is proper, the library uses the buffer
 along with resources defined above to call the correct callback function
 to handle the CoAP request from the client. It's the callback function's
-responsibilty to either reply or act according to CoAP request.
+responsibility to either reply or act according to CoAP request.
 
 .. code-block:: c
 
@@ -75,6 +75,24 @@ responsibilty to either reply or act according to CoAP request.
     ...
     coap_handle_request(&request, resources, options, opt_num,
                         client_addr, client_addr_len);
+
+If :option:`CONFIG_COAP_URI_WILDCARD` enabled, server may accept multiple resources
+using MQTT-like wildcard style:
+
+- the plus symbol represents a single-level wild card in the path;
+- the hash symbol represents the multi-level wild card in the path.
+
+.. code-block:: c
+
+    static const char * const led_set[] = { "led","+","set", NULL };
+    static const char * const btn_get[] = { "button","#", NULL };
+    static const char * const no_wc[] = { "test","+1", NULL };
+
+It accepts /led/0/set, led/1234/set, led/any/set, /button/door/1, /test/+1,
+but returns -ENOENT for /led/1, /test/21, /test/1.
+
+This option is enabled by default, disable it to avoid unexpected behaviour
+with resource path like '/some_resource/+/#'.
 
 CoAP Client
 ===========
@@ -89,8 +107,8 @@ the ``.well-known/core`` CoAP message.
     /* Initialize the CoAP message */
     char *path = "test";
     struct coap_packet request;
-    u8_t data[100];
-    u8_t payload[20];
+    uint8_t data[100];
+    uint8_t payload[20];
 
     coap_packet_init(&request, data, sizeof(data),
                      1, COAP_TYPE_CON, 8, coap_next_token(),
@@ -104,7 +122,7 @@ the ``.well-known/core`` CoAP message.
     coap_packet_append_payload_marker(&request);
 
     /* Append payload */
-    coap_packet_append_payload(&request, (u8_t *)payload,
+    coap_packet_append_payload(&request, (uint8_t *)payload,
                                sizeof(payload) - 1);
 
     /* send over sockets */

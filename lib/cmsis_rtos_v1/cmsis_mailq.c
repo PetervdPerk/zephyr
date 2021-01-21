@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel_structs.h>
+#include <kernel.h>
 #include <cmsis_os.h>
+#include <string.h>
 
 /**
  * @brief Create and Initialize mail queue.
@@ -37,7 +38,7 @@ void *osMailAlloc(osMailQId queue_id, uint32_t millisec)
 		return NULL;
 	}
 
-	if (millisec == 0) {
+	if (millisec == 0U) {
 		retval = k_mem_slab_alloc(
 				(struct k_mem_slab *)(queue_def->pool),
 				(void **)&ptr, K_NO_WAIT);
@@ -48,7 +49,7 @@ void *osMailAlloc(osMailQId queue_id, uint32_t millisec)
 	} else {
 		retval = k_mem_slab_alloc(
 				(struct k_mem_slab *)(queue_def->pool),
-				(void **)&ptr, millisec);
+				(void **)&ptr, K_MSEC(millisec));
 	}
 
 	if (retval == 0) {
@@ -71,7 +72,7 @@ void *osMailCAlloc(osMailQId queue_id, uint32_t millisec)
 		return NULL;
 	}
 
-	if (millisec == 0) {
+	if (millisec == 0U) {
 		retval = k_mem_slab_alloc(
 				(struct k_mem_slab *)(queue_def->pool),
 				(void **)&ptr, K_NO_WAIT);
@@ -82,7 +83,7 @@ void *osMailCAlloc(osMailQId queue_id, uint32_t millisec)
 	} else {
 		retval = k_mem_slab_alloc(
 				(struct k_mem_slab *)(queue_def->pool),
-				(void **)&ptr, millisec);
+				(void **)&ptr, K_MSEC(millisec));
 	}
 
 	if (retval == 0) {
@@ -137,12 +138,13 @@ osEvent osMailGet(osMailQId queue_id, uint32_t millisec)
 	mmsg.rx_source_thread = K_ANY;
 	mmsg.tx_target_thread = K_ANY;
 
-	if (millisec == 0) {
+	if (millisec == 0U) {
 		retval = k_mbox_get(queue_def->mbox, &mmsg, NULL, K_NO_WAIT);
 	} else if (millisec == osWaitForever) {
 		retval = k_mbox_get(queue_def->mbox, &mmsg, NULL, K_FOREVER);
 	} else {
-		retval = k_mbox_get(queue_def->mbox, &mmsg, NULL, millisec);
+		retval = k_mbox_get(queue_def->mbox, &mmsg, NULL,
+				    K_MSEC(millisec));
 	}
 
 	if (retval == 0) {

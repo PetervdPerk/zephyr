@@ -1,23 +1,14 @@
-#
 # Copyright (c) 2016 Intel Corporation
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
-menu "Disk"
+DT_COMPAT_ST_STM32_SDMMC := st,stm32-sdmmc
 
-config DISK_ACCESS
-	bool "Enable Disk Interface"
+menuconfig DISK_ACCESS
+	bool "Disk Interface"
 	help
 	  Enable disk access over a supported media backend like FLASH or RAM
 
 if DISK_ACCESS
-
-config DISK_ACCESS_MAX_VOLUMES
-	int "Maximum Disk Interfaces"
-	default 8
-	help
-	  Maximum number of disk access interfaces supported
 
 module = DISK
 module-str = disk
@@ -29,21 +20,6 @@ config DISK_ACCESS_RAM
 	  RAM buffer used to emulate storage disk.
 	  This option can be used to test the file
 	  system.
-
-config DISK_ACCESS_FLASH
-	bool "Flash"
-	select FLASH
-	help
-	  Flash device is used for the file system.
-
-config DISK_ACCESS_SDHC
-	bool "SDHC card over SPI"
-	select SPI
-	select FLASH
-	help
-	  File system on a SDHC card accessed over SPI.
-
-endif # DISK_ACCESS
 
 if DISK_ACCESS_RAM
 
@@ -60,6 +36,12 @@ config DISK_RAM_VOLUME_NAME
 	  Disk name as per file system naming guidelines.
 
 endif # DISK_ACCESS_RAM
+
+config DISK_ACCESS_FLASH
+	bool "Flash"
+	select FLASH
+	help
+	  Flash device is used for the file system.
 
 if DISK_ACCESS_FLASH
 
@@ -97,6 +79,12 @@ config DISK_ERASE_BLOCK_SIZE
 	  is erased at one time in flash storage.
 	  Typically it is equal to the flash memory page size.
 
+config DISK_FLASH_SECTOR_SIZE
+	int "Flash device sector size"
+	default 512
+	help
+	  This is the file system sector size in bytes.
+
 config DISK_VOLUME_SIZE
 	hex "Flash device volume size in hex"
 	help
@@ -104,14 +92,69 @@ config DISK_VOLUME_SIZE
 
 endif # DISK_ACCESS_FLASH
 
+config DISK_ACCESS_SDHC
+	bool "SDHC card access"
+	select FLASH
+	help
+	  File system on a SDHC card.
+
 if DISK_ACCESS_SDHC
+
+config DISK_ACCESS_SPI_SDHC
+	bool "SDHC access over SPI"
+	depends on SPI
+	help
+	  File system on a SDHC card accessed over SPI.
+
+config DISK_ACCESS_USDHC
+	bool "NXP i.MXRT USDHC driver"
+	depends on (HAS_MCUX_USDHC1 || HAS_MCUX_USDHC2)
+	help
+	  File system on a SDHC card accessed over
+	  NXP USDHC.
+
+if DISK_ACCESS_USDHC
+
+config DISK_ACCESS_USDHC1
+	bool "NXP i.MXRT USDHC instance 1"
+	depends on HAS_MCUX_USDHC1
+	help
+	  File system on a SDHC card accessed over
+	  USDHC instance 1.
+
+config DISK_ACCESS_USDHC2
+	bool "NXP i.MXRT USDHC instance 2"
+	depends on HAS_MCUX_USDHC2
+	help
+	  File system on a SDHC card accessed over
+	  USDHC instance 2.
+
+endif # DISK_ACCESS_USDHC
 
 config DISK_SDHC_VOLUME_NAME
 	string "SDHC Disk mount point or drive name"
+	default "SD" if FAT_FILESYSTEM_ELM
 	default "SDHC"
 	help
 	  Disk name as per file system naming guidelines.
 
 endif # DISK_ACCESS_SDHC
 
-endmenu
+config DISK_ACCESS_STM32_SDMMC
+	bool "STM32 SDMMC driver"
+	depends on HAS_STM32CUBE
+	select USE_STM32_HAL_SD
+	select USE_STM32_LL_SDMMC
+	default $(dt_compat_enabled,$(DT_COMPAT_ST_STM32_SDMMC))
+	help
+	  File system on sdmmc accessed through stm32 sdmmc.
+
+config DISK_STM32_SDMMC_VOLUME_NAME
+	string "SDMMC Disk mount point or drive name"
+	depends on DISK_ACCESS_STM32_SDMMC
+	default "SD" if FAT_FILESYSTEM_ELM
+	default "SDMMC"
+	help
+	  Disk name as per file system naming guidelines.
+
+endif # DISK_ACCESS

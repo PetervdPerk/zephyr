@@ -1,4 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
 config SOC_IA32
 	bool "Generic IA32 SoC"
+	select X86
 	select CPU_MINUTEIA
-	select BOOTLOADER_UNKNOWN
+	select ARCH_HAS_RESERVED_PAGE_FRAMES if SRAM_BASE_ADDRESS = 0

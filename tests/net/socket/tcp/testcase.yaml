@@ -1,7 +1,12 @@
 common:
   depends_on: netif
-  platform_whitelist: native_posix qemu_x86 qemu_cortex_m3
+  min_ram: 32
+  tags: net socket userspace
+  filter: TOOLCHAIN_HAS_NEWLIB == 1
 tests:
   net.socket.tcp:
-    min_ram: 32
-    tags: net socket
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_COOPERATIVE=y
+  net.socket.tcp.preempt:
+    extra_configs:
+      - CONFIG_NET_TC_THREAD_PREEMPTIVE=y

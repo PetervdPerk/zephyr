@@ -8,15 +8,34 @@
 LOG_MODULE_REGISTER(net_socket_offload, CONFIG_NET_SOCKETS_LOG_LEVEL);
 
 #include <net/socket_offload.h>
+#include <net/socket.h>
 
-/* Only one provider may register socket operations upon boot. */
-const struct socket_offload *socket_ops;
+#include "sockets_internal.h"
 
-void socket_offload_register(const struct socket_offload *ops)
+const struct socket_dns_offload *dns_offload;
+
+void socket_offload_dns_register(const struct socket_dns_offload *ops)
 {
 	__ASSERT_NO_MSG(ops);
-	__ASSERT_NO_MSG(socket_ops == NULL);
+	__ASSERT_NO_MSG(dns_offload == NULL);
 
-	socket_ops = ops;
+	dns_offload = ops;
 }
 
+int socket_offload_getaddrinfo(const char *node, const char *service,
+			       const struct zsock_addrinfo *hints,
+			       struct zsock_addrinfo **res)
+{
+	__ASSERT_NO_MSG(dns_offload);
+	__ASSERT_NO_MSG(dns_offload->getaddrinfo);
+
+	return dns_offload->getaddrinfo(node, service, hints, res);
+}
+
+void socket_offload_freeaddrinfo(struct zsock_addrinfo *res)
+{
+	__ASSERT_NO_MSG(dns_offload);
+	__ASSERT_NO_MSG(dns_offload->freeaddrinfo);
+
+	return dns_offload->freeaddrinfo(res);
+}

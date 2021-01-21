@@ -3,46 +3,58 @@
 West (Zephyr's meta-tool)
 #########################
 
-The Zephyr project includes a swiss-army knife command line tool
-named ``west`` (Zephyr is an English name for the Latin
-`Zephyrus <https://en.wiktionary.org/wiki/Zephyrus>`_, the ancient Greek god
-of the west wind).
+The Zephyr project includes a swiss-army knife command line tool named
+``west``\ [#west-name]_. West is developed in its own `repository`_.
 
-West is used upstream to obtain the source code for the Zephyr project and can
-also be used to build, debug, and flash applications. It is developed in its
-own `repository on GitHub`_. The source code retrieval features include a
-multiple repository management system with features inspired by Google's Repo
-tool and Git submodules.
+West's built-in commands provide a multiple repository management system with
+features inspired by Google's Repo tool and Git submodules. West is also
+"pluggable": you can write your own west extension commands which add
+additional features to west. Zephyr uses this to provide conveniences for
+building applications, flashing and debugging them, and more.
 
-West is also pluggable: you can write your own west "extension commands" to add
-additional features. Extension commands can be in any directory in your
-installation; they don't have to be defined in the zephyr or west repositories.
+Like ``git`` and ``docker``, the top-level ``west`` command takes some common
+options, a sub-command to run, and then options and arguments for that
+sub-command::
 
-Like :program:`git` and :program:`docker`, the top-level :program:`west`
-command takes some options, a sub-command to run, and then options specific to
-that sub-command::
+  west [common-opts] <command> [opts] <args>
 
-  west [common-opts] <command-name> [command-opts] [<command-args>]
+Since west v0.8, you can also run west like this::
 
-After you've :ref:`created a Zephyr installation using west <getting_started>`,
-you can run ``west --help`` (or ``west -h`` for short) to get top-level help on
-west's built-in commands along with any extension commands available in your
-installation.
+  python3 -m west [common-opts] <command> [opts] <args>
 
-The following pages describe how to use west, and provide additional context
-about the tool.
+You can run ``west --help`` (or ``west -h`` for short) to get top-level help
+for available west commands, and ``west <command> -h`` for detailed help on
+each command.
+
+The following pages document west's ``v0.8.x`` releases, and provide additional
+context about the tool.
 
 .. toctree::
    :maxdepth: 1
 
+   install.rst
+   moving-to-west.rst
+   troubleshooting.rst
    repo-tool.rst
+   manifest.rst
+   config.rst
+   extensions.rst
    build-flash-debug.rst
+   sign.rst
+   zephyr-cmds.rst
    why.rst
    without-west.rst
-   planned.rst
+   release-notes.rst
 
-For details on west's Python APIs (including APIs provided by extensions in the
-zephyr), see :ref:`west-apis`.
+For details on west's Python APIs, see :ref:`west-apis`.
 
-.. _repository on GitHub:
+.. rubric:: Footnotes
+
+.. [#west-name]
+
+   Zephyr is an English name for the Latin `Zephyrus
+   <https://en.wiktionary.org/wiki/Zephyrus>`_, the ancient Greek god of the
+   west wind.
+
+.. _repository:
    https://github.com/zephyrproject-rtos/west

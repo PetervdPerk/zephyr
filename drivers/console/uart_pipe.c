@@ -11,21 +11,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <logging/log.h>
+LOG_MODULE_REGISTER(uart_pipe, CONFIG_UART_CONSOLE_LOG_LEVEL);
+
 #include <kernel.h>
 
-#include <uart.h>
+#include <drivers/uart.h>
 
-#include <console/uart_pipe.h>
-#include <misc/printk.h>
+#include <drivers/console/uart_pipe.h>
+#include <sys/printk.h>
 
-static struct device *uart_pipe_dev;
+static const struct device *uart_pipe_dev;
 
-static u8_t *recv_buf;
+static uint8_t *recv_buf;
 static size_t recv_buf_len;
 static uart_pipe_recv_cb app_cb;
 static size_t recv_off;
 
-static void uart_pipe_rx(struct device *dev)
+static void uart_pipe_rx(const struct device *dev)
 {
 	/* As per the API, the interrupt may be an edge so keep
 	 * reading from the FIFO until it's empty.
@@ -39,6 +42,8 @@ static void uart_pipe_rx(struct device *dev)
 			break;
 		}
 
+		LOG_HEXDUMP_DBG(recv_buf + recv_off, got, "RX");
+
 		/*
 		 * Call application callback with received data. Application
 		 * may provide new buffer or alter data offset.
@@ -48,8 +53,10 @@ static void uart_pipe_rx(struct device *dev)
 	}
 }
 
-static void uart_pipe_isr(struct device *dev)
+static void uart_pipe_isr(const struct device *dev, void *user_data)
 {
+	ARG_UNUSED(user_data);
+
 	uart_irq_update(dev);
 
 	if (uart_irq_is_pending(dev)) {
@@ -59,8 +66,10 @@ static void uart_pipe_isr(struct device *dev)
 	}
 }
 
-int uart_pipe_send(const u8_t *data, int len)
+int uart_pipe_send(const uint8_t *data, int len)
 {
+	LOG_HEXDUMP_DBG(data, len, "TX");
+
 	while (len--)  {
 		uart_poll_out(uart_pipe_dev, *data++);
 	}
@@ -68,9 +77,9 @@ int uart_pipe_send(const u8_t *data, int len)
 	return 0;
 }
 
-static void uart_pipe_setup(struct device *uart)
+static void uart_pipe_setup(const struct device *uart)
 {
-	u8_t c;
+	uint8_t c;
 
 	uart_irq_rx_disable(uart);
 	uart_irq_tx_disable(uart);
@@ -85,7 +94,7 @@ static void uart_pipe_setup(struct device *uart)
 	uart_irq_rx_enable(uart);
 }
 
-void uart_pipe_register(u8_t *buf, size_t len, uart_pipe_recv_cb cb)
+void uart_pipe_register(uint8_t *buf, size_t len, uart_pipe_recv_cb cb)
 {
 	recv_buf = buf;
 	recv_buf_len = len;

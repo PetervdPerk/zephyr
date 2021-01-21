@@ -4,25 +4,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT sensirion_sht3xd
+
 #include <device.h>
-#include <i2c.h>
+#include <drivers/i2c.h>
 #include <kernel.h>
-#include <sensor.h>
-#include <misc/__assert.h>
+#include <drivers/sensor.h>
+#include <sys/__assert.h>
 #include <logging/log.h>
 
 #include "sht3xd.h"
 
-#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-LOG_MODULE_REGISTER(SHT3XD);
+LOG_MODULE_REGISTER(SHT3XD, CONFIG_SENSOR_LOG_LEVEL);
 
-static const u16_t measure_cmd[5][3] = {
+#ifdef CONFIG_SHT3XD_SINGLE_SHOT_MODE
+static const uint16_t measure_cmd[3] = {
+	0x2400, 0x240B, 0x2416
+};
+#endif
+#ifdef CONFIG_SHT3XD_PERIODIC_MODE
+static const uint16_t measure_cmd[5][3] = {
 	{ 0x202F, 0x2024, 0x2032 },
 	{ 0x212D, 0x2126, 0x2130 },
 	{ 0x222B, 0x2220, 0x2236 },
 	{ 0x2329, 0x2322, 0x2334 },
 	{ 0x272A, 0x2721, 0x2737 }
 };
+#endif
 
 static const int measure_wait[3] = {
 	4000, 6000, 15000
@@ -32,11 +40,11 @@ static const int measure_wait[3] = {
  * CRC algorithm parameters were taken from the
  * "Checksum Calculation" section of the datasheet.
  */
-static u8_t sht3xd_compute_crc(u16_t value)
+static uint8_t sht3xd_compute_crc(uint16_t value)
 {
-	u8_t buf[2] = { value >> 8, value & 0xFF };
-	u8_t crc = 0xFF;
-	u8_t polynom = 0x31;
+	uint8_t buf[2] = { value >> 8, value & 0xFF };
+	uint8_t crc = 0xFF;
+	uint8_t polynom = 0x31;
 	int i, j;
 
 	for (i = 0; i < 2; ++i) {
@@ -53,17 +61,17 @@ static u8_t sht3xd_compute_crc(u16_t value)
 	return crc;
 }
 
-int sht3xd_write_command(struct device *dev, u16_t cmd)
+int sht3xd_write_command(const struct device *dev, uint16_t cmd)
 {
-	u8_t tx_buf[2] = { cmd >> 8, cmd & 0xFF };
+	uint8_t tx_buf[2] = { cmd >> 8, cmd & 0xFF };
 
 	return i2c_write(sht3xd_i2c_device(dev), tx_buf, sizeof(tx_buf),
 			 sht3xd_i2c_address(dev));
 }
 
-int sht3xd_write_reg(struct device *dev, u16_t cmd, u16_t val)
+int sht3xd_write_reg(const struct device *dev, uint16_t cmd, uint16_t val)
 {
-	u8_t tx_buf[5];
+	uint8_t tx_buf[5];
 
 	tx_buf[0] = cmd >> 8;
 	tx_buf[1] = cmd & 0xFF;
@@ -75,17 +83,34 @@ int sht3xd_write_reg(struct device *dev, u16_t cmd, u16_t val)
 			 sht3xd_i2c_address(dev));
 }
 
-static int sht3xd_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int sht3xd_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct sht3xd_data *data = dev->driver_data;
-	struct device *i2c = sht3xd_i2c_device(dev);
-	u8_t address = sht3xd_i2c_address(dev);
-	u8_t rx_buf[6];
-	u16_t t_sample, rh_sample;
+	struct sht3xd_data *data = dev->data;
+	const struct device *i2c = sht3xd_i2c_device(dev);
+	uint8_t address = sht3xd_i2c_address(dev);
+	uint8_t rx_buf[6];
+	uint16_t t_sample, rh_sample;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
-	u8_t tx_buf[2] = {
+#ifdef CONFIG_SHT3XD_SINGLE_SHOT_MODE
+	/* start single shot measurement */
+	if (sht3xd_write_command(dev,
+				 measure_cmd[SHT3XD_REPEATABILITY_IDX])
+	    < 0) {
+		LOG_DBG("Failed to set single shot measurement mode!");
+		return -EIO;
+	}
+	k_sleep(K_MSEC(measure_wait[SHT3XD_REPEATABILITY_IDX] / USEC_PER_MSEC));
+
+	if (i2c_read(i2c, rx_buf, sizeof(rx_buf), address) < 0) {
+		LOG_DBG("Failed to read data sample!");
+		return -EIO;
+	}
+#endif
+#ifdef CONFIG_SHT3XD_PERIODIC_MODE
+	uint8_t tx_buf[2] = {
 		SHT3XD_CMD_FETCH >> 8,
 		SHT3XD_CMD_FETCH & 0xFF
 	};
@@ -95,6 +120,7 @@ static int sht3xd_sample_fetch(struct device *dev, enum sensor_channel chan)
 		LOG_DBG("Failed to read data sample!");
 		return -EIO;
 	}
+#endif
 
 	t_sample = (rx_buf[0] << 8) | rx_buf[1];
 	if (sht3xd_compute_crc(t_sample) != rx_buf[2]) {
@@ -114,12 +140,12 @@ static int sht3xd_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return 0;
 }
 
-static int sht3xd_channel_get(struct device *dev,
+static int sht3xd_channel_get(const struct device *dev,
 			      enum sensor_channel chan,
 			      struct sensor_value *val)
 {
-	const struct sht3xd_data *data = dev->driver_data;
-	u64_t tmp;
+	const struct sht3xd_data *data = dev->data;
+	uint64_t tmp;
 
 	/*
 	 * See datasheet "Conversion of Signal Output" section
@@ -127,15 +153,15 @@ static int sht3xd_channel_get(struct device *dev,
 	 */
 	if (chan == SENSOR_CHAN_AMBIENT_TEMP) {
 		/* val = -45 + 175 * sample / (2^16 -1) */
-		tmp = 175 * (u64_t)data->t_sample;
-		val->val1 = (s32_t)(tmp / 0xFFFF) - 45;
-		val->val2 = (1000000 * (tmp % 0xFFFF)) / 0xFFFF;
+		tmp = (uint64_t)data->t_sample * 175U;
+		val->val1 = (int32_t)(tmp / 0xFFFF) - 45;
+		val->val2 = ((tmp % 0xFFFF) * 1000000U) / 0xFFFF;
 	} else if (chan == SENSOR_CHAN_HUMIDITY) {
 		/* val = 100 * sample / (2^16 -1) */
-		u32_t tmp2 = 100 * (u32_t)data->rh_sample;
+		uint32_t tmp2 = (uint32_t)data->rh_sample * 100U;
 		val->val1 = tmp2 / 0xFFFF;
 		/* x * 100000 / 65536 == x * 15625 / 1024 */
-		val->val2 = (tmp2 % 0xFFFF) * 15625 / 1024;
+		val->val2 = (tmp2 % 0xFFFF) * 15625U / 1024;
 	} else {
 		return -ENOTSUP;
 	}
@@ -152,11 +178,11 @@ static const struct sensor_driver_api sht3xd_driver_api = {
 	.channel_get = sht3xd_channel_get,
 };
 
-static int sht3xd_init(struct device *dev)
+static int sht3xd_init(const struct device *dev)
 {
-	struct sht3xd_data *data = dev->driver_data;
-	const struct sht3xd_config *cfg = dev->config->config_info;
-	struct device *i2c = device_get_binding(cfg->bus_name);
+	struct sht3xd_data *data = dev->data;
+	const struct sht3xd_config *cfg = dev->config;
+	const struct device *i2c = device_get_binding(cfg->bus_name);
 
 	if (i2c == NULL) {
 		LOG_DBG("Failed to get pointer to %s device!",
@@ -179,6 +205,7 @@ static int sht3xd_init(struct device *dev)
 
 	k_busy_wait(SHT3XD_CLEAR_STATUS_WAIT_USEC);
 
+#ifdef CONFIG_SHT3XD_PERIODIC_MODE
 	/* set periodic measurement mode */
 	if (sht3xd_write_command(dev,
 				 measure_cmd[SHT3XD_MPS_IDX][SHT3XD_REPEATABILITY_IDX])
@@ -188,7 +215,7 @@ static int sht3xd_init(struct device *dev)
 	}
 
 	k_busy_wait(measure_wait[SHT3XD_REPEATABILITY_IDX]);
-
+#endif
 #ifdef CONFIG_SHT3XD_TRIGGER
 	if (sht3xd_init_interrupt(dev) < 0) {
 		LOG_DBG("Failed to initialize interrupt");
@@ -201,17 +228,18 @@ static int sht3xd_init(struct device *dev)
 
 struct sht3xd_data sht3xd0_driver;
 static const struct sht3xd_config sht3xd0_cfg = {
-	.bus_name = DT_SENSIRION_SHT3XD_0_BUS_NAME,
+	.bus_name = DT_INST_BUS_LABEL(0),
 #ifdef CONFIG_SHT3XD_TRIGGER
-	.alert_gpio_name = DT_SENSIRION_SHT3XD_0_ALERT_GPIOS_CONTROLLER,
+	.alert_gpio_name = DT_INST_GPIO_LABEL(0, alert_gpios),
 #endif
-	.base_address = DT_SENSIRION_SHT3XD_0_BASE_ADDRESS,
+	.base_address = DT_INST_REG_ADDR(0),
 #ifdef CONFIG_SHT3XD_TRIGGER
-	.alert_pin = DT_SENSIRION_SHT3XD_0_ALERT_GPIOS_PIN,
+	.alert_pin = DT_INST_GPIO_PIN(0, alert_gpios),
+	.alert_flags = DT_INST_GPIO_FLAGS(0, alert_gpios),
 #endif
 };
 
-DEVICE_AND_API_INIT(sht3xd0, DT_SENSIRION_SHT3XD_0_LABEL,
-		    sht3xd_init, &sht3xd0_driver, &sht3xd0_cfg,
+DEVICE_DT_INST_DEFINE(0, sht3xd_init, device_pm_control_nop,
+		    &sht3xd0_driver, &sht3xd0_cfg,
 		    POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
 		    &sht3xd_driver_api);

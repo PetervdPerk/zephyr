@@ -9,13 +9,16 @@
 #include <wait_q.h>
 #include <posix/pthread.h>
 
-static int cond_wait(pthread_cond_t *cv, pthread_mutex_t *mut, int timeout)
+int64_t timespec_to_timeoutms(const struct timespec *abstime);
+
+static int cond_wait(pthread_cond_t *cv, pthread_mutex_t *mut,
+		     k_timeout_t timeout)
 {
-	__ASSERT(mut->lock_count == 1, "");
+	__ASSERT(mut->lock_count == 1U, "");
 
 	int ret, key = irq_lock();
 
-	mut->lock_count = 0;
+	mut->lock_count = 0U;
 	mut->owner = NULL;
 	_ready_one_thread(&mut->wait_q);
 	ret = z_pend_curr_irqlock(key, &cv->wait_q, timeout);
@@ -73,8 +76,8 @@ int pthread_cond_wait(pthread_cond_t *cv, pthread_mutex_t *mut)
 }
 
 int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut,
-			   const struct timespec *to)
+			   const struct timespec *abstime)
 {
-	return cond_wait(cv, mut, _ts_to_ms(to));
+	int32_t timeout = (int32_t)timespec_to_timeoutms(abstime);
+	return cond_wait(cv, mut, K_MSEC(timeout));
 }
-

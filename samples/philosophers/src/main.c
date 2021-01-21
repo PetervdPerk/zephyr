@@ -40,10 +40,10 @@
 #if defined(CONFIG_STDOUT_CONSOLE)
 #include <stdio.h>
 #else
-#include <misc/printk.h>
+#include <sys/printk.h>
 #endif
 
-#include <misc/__assert.h>
+#include <sys/__assert.h>
 
 #define SEMAPHORES 1
 #define MUTEXES 2
@@ -83,7 +83,7 @@
 /* end - control behaviour of the demo */
 /***************************************/
 
-#define STACK_SIZE 768
+#define STACK_SIZE (768 + CONFIG_TEST_EXTRA_STACKSIZE)
 
 #include "phil_obj_abstract.h"
 
@@ -97,7 +97,7 @@ static void set_phil_state_pos(int id)
 }
 
 #include <stdarg.h>
-static void print_phil_state(int id, const char *fmt, s32_t delay)
+static void print_phil_state(int id, const char *fmt, int32_t delay)
 {
 	int prio = k_thread_priority_get(k_current_get());
 
@@ -117,17 +117,17 @@ static void print_phil_state(int id, const char *fmt, s32_t delay)
 	printk("\n");
 }
 
-static s32_t get_random_delay(int id, int period_in_ms)
+static int32_t get_random_delay(int id, int period_in_ms)
 {
 	/*
 	 * The random delay is unit-less, and is based on the philosopher's ID
 	 * and the current uptime to create some pseudo-randomness. It produces
 	 * a value between 0 and 31.
 	 */
-	s32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
+	int32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
 
 	/* add 1 to not generate a delay of 0 */
-	s32_t ms = (delay + 1) * period_in_ms;
+	int32_t ms = (delay + 1) * period_in_ms;
 
 	return ms;
 }
@@ -145,7 +145,7 @@ void philosopher(void *id, void *unused1, void *unused2)
 	fork_t fork1;
 	fork_t fork2;
 
-	int my_id = (int)id;
+	int my_id = POINTER_TO_INT(id);
 
 	/* Djkstra's solution: always pick up the lowest numbered fork first */
 	if (is_last_philosopher(my_id)) {
@@ -157,7 +157,7 @@ void philosopher(void *id, void *unused1, void *unused2)
 	}
 
 	while (1) {
-		s32_t delay;
+		int32_t delay;
 
 		print_phil_state(my_id, "       STARVING       ", 0);
 		take(fork1);
@@ -166,7 +166,7 @@ void philosopher(void *id, void *unused1, void *unused2)
 
 		delay = get_random_delay(my_id, 25);
 		print_phil_state(my_id, "  EATING  [ %s%d ms ] ", delay);
-		k_sleep(delay);
+		k_msleep(delay);
 
 		drop(fork2);
 		print_phil_state(my_id, "   DROPPED ONE FORK   ", 0);
@@ -174,7 +174,7 @@ void philosopher(void *id, void *unused1, void *unused2)
 
 		delay = get_random_delay(my_id, 25);
 		print_phil_state(my_id, " THINKING [ %s%d ms ] ", delay);
-		k_sleep(delay);
+		k_msleep(delay);
 	}
 
 }
@@ -217,8 +217,8 @@ static void start_threads(void)
 		int prio = new_prio(i);
 
 		k_thread_create(&threads[i], &stacks[i][0], STACK_SIZE,
-				philosopher, (void *)i, NULL, NULL, prio,
-				K_USER, K_FOREVER);
+				philosopher, INT_TO_POINTER(i), NULL, NULL,
+				prio, K_USER, K_FOREVER);
 
 		k_object_access_grant(fork(i), &threads[i]);
 		k_object_access_grant(fork((i + 1) % NUM_PHIL), &threads[i]);
@@ -253,4 +253,11 @@ void main(void)
 
 	init_objects();
 	start_threads();
+
+#ifdef CONFIG_COVERAGE
+	/* Wait a few seconds before main() exit, giving the sample the
+	 * opportunity to dump some output before coverage data gets emitted
+	 */
+	k_sleep(K_MSEC(5000));
+#endif
 }

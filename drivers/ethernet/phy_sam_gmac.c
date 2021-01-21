@@ -12,6 +12,10 @@
 #include <net/mii.h>
 #include "phy_sam_gmac.h"
 
+#ifdef CONFIG_SOC_FAMILY_SAM0
+#include "eth_sam0_gmac.h"
+#endif
+
 #define LOG_MODULE_NAME eth_sam_phy
 #define LOG_LEVEL CONFIG_ETHERNET_LOG_LEVEL
 
@@ -39,23 +43,23 @@ static void mdio_bus_disable(Gmac *gmac)
 /* Wait PHY operation complete. */
 static int mdio_bus_wait(Gmac *gmac)
 {
-	u32_t retries = 100U;  /* will wait up to 1 s */
+	uint32_t retries = 100U;  /* will wait up to 1 s */
 
 	while (!(gmac->GMAC_NSR & GMAC_NSR_IDLE))   {
-		if (retries-- == 0) {
+		if (retries-- == 0U) {
 			LOG_ERR("timeout");
 			return -ETIMEDOUT;
 		}
 
-		k_sleep(10);
+		k_sleep(K_MSEC(10));
 	}
 
 	return 0;
 }
 
 /* Send command to PHY over MDIO serial bus */
-static int mdio_bus_send(Gmac *gmac, u8_t phy_addr, u8_t reg_addr,
-			 u8_t rw, u16_t data)
+static int mdio_bus_send(Gmac *gmac, uint8_t phy_addr, uint8_t reg_addr,
+			 uint8_t rw, uint16_t data)
 {
 	int retval;
 
@@ -77,11 +81,11 @@ static int mdio_bus_send(Gmac *gmac, u8_t phy_addr, u8_t reg_addr,
 }
 
 /* Read PHY register. */
-static int phy_read(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
-		    u32_t *value)
+static int phy_read(const struct phy_sam_gmac_dev *phy, uint8_t reg_addr,
+		    uint32_t *value)
 {
 	Gmac *const gmac = phy->regs;
-	u8_t phy_addr = phy->address;
+	uint8_t phy_addr = phy->address;
 	int retval;
 
 	retval = mdio_bus_send(gmac, phy_addr, reg_addr, 1, 0);
@@ -96,11 +100,11 @@ static int phy_read(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
 }
 
 /* Write PHY register. */
-static int phy_write(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
-		     u32_t value)
+static int phy_write(const struct phy_sam_gmac_dev *phy, uint8_t reg_addr,
+		     uint32_t value)
 {
 	Gmac *const gmac = phy->regs;
-	u8_t phy_addr = phy->address;
+	uint8_t phy_addr = phy->address;
 
 	return mdio_bus_send(gmac, phy_addr, reg_addr, 0, value);
 }
@@ -108,8 +112,8 @@ static int phy_write(const struct phy_sam_gmac_dev *phy, u8_t reg_addr,
 /* Issue a PHY soft reset. */
 static int phy_soft_reset(const struct phy_sam_gmac_dev *phy)
 {
-	u32_t phy_reg;
-	u32_t retries = 12U;
+	uint32_t phy_reg;
+	uint32_t retries = 12U;
 	int retval;
 
 	/* Issue a soft reset */
@@ -123,11 +127,11 @@ static int phy_soft_reset(const struct phy_sam_gmac_dev *phy)
 	 * up to 0.5 s.
 	 */
 	do {
-		if (retries-- == 0) {
+		if (retries-- == 0U) {
 			return -ETIMEDOUT;
 		}
 
-		k_sleep(50);
+		k_sleep(K_MSEC(50));
 
 		retval = phy_read(phy, MII_BMCR, &phy_reg);
 		if (retval < 0) {
@@ -162,11 +166,11 @@ int phy_sam_gmac_init(const struct phy_sam_gmac_dev *phy)
 	return 0;
 }
 
-u32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
+uint32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
 {
 	Gmac *const gmac = phy->regs;
-	u32_t phy_reg;
-	u32_t phy_id;
+	uint32_t phy_reg;
+	uint32_t phy_id;
 
 	mdio_bus_enable(gmac);
 
@@ -187,14 +191,30 @@ u32_t phy_sam_gmac_id_get(const struct phy_sam_gmac_dev *phy)
 	return phy_id;
 }
 
+bool phy_sam_gmac_link_status_get(const struct phy_sam_gmac_dev *phy)
+{
+	Gmac * const gmac = phy->regs;
+	uint32_t bmsr;
+
+	mdio_bus_enable(gmac);
+
+	if (phy_read(phy, MII_BMSR, &bmsr) < 0) {
+		return false;
+	}
+
+	mdio_bus_disable(gmac);
+
+	return (bmsr & MII_BMSR_LINK_STATUS) != 0;
+}
+
 int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
-				u32_t *status)
+				uint32_t *status)
 {
 	Gmac *const gmac = phy->regs;
-	u32_t val;
-	u32_t ability_adv;
-	u32_t ability_rcvd;
-	u32_t retries = PHY_AUTONEG_TIMEOUT_MS / 100;
+	uint32_t val;
+	uint32_t ability_adv;
+	uint32_t ability_rcvd;
+	uint32_t retries = PHY_AUTONEG_TIMEOUT_MS / 100;
 	int retval;
 
 	mdio_bus_enable(gmac);
@@ -223,12 +243,12 @@ int phy_sam_gmac_auto_negotiate(const struct phy_sam_gmac_dev *phy,
 
 	/* Wait for the auto-negotiation process to complete */
 	do {
-		if (retries-- == 0) {
+		if (retries-- == 0U) {
 			retval = -ETIMEDOUT;
 			goto auto_negotiate_exit;
 		}
 
-		k_sleep(100);
+		k_sleep(K_MSEC(100));
 
 		retval = phy_read(phy, MII_BMSR, &val);
 		if (retval < 0) {

@@ -5,7 +5,7 @@
  */
 
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 #include <string.h>
 
@@ -13,7 +13,7 @@
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/gatt.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 
 #include "mesh.h"
 #include "board.h"
@@ -23,7 +23,7 @@ static const struct bt_data ad[] = {
 };
 
 static ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, u16_t len, u16_t offset)
+			 void *buf, uint16_t len, uint16_t offset)
 {
 	const char *value = bt_get_name();
 
@@ -32,8 +32,8 @@ static ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 }
 
 static ssize_t write_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			  const void *buf, u16_t len, u16_t offset,
-			  u8_t flags)
+			  const void *buf, uint16_t len, uint16_t offset,
+			  uint8_t flags)
 {
 	char name[CONFIG_BT_DEVICE_NAME_MAX];
 	int err;
@@ -74,7 +74,7 @@ static const struct bt_gatt_cpf name_cpf = {
 };
 
 /* Vendor Primary Service Declaration */
-static struct bt_gatt_attr name_attrs[] = {
+BT_GATT_SERVICE_DEFINE(name_svc,
 	/* Vendor Primary Service Declaration */
 	BT_GATT_PRIMARY_SERVICE(&name_uuid),
 	BT_GATT_CHARACTERISTIC(&name_enc_uuid.uuid,
@@ -83,9 +83,7 @@ static struct bt_gatt_attr name_attrs[] = {
 			       read_name, write_name, NULL),
 	BT_GATT_CUD("Badge Name", BT_GATT_PERM_READ),
 	BT_GATT_CPF(&name_cpf),
-};
-
-static struct bt_gatt_service name_svc = BT_GATT_SERVICE(name_attrs);
+);
 
 static void passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
@@ -108,9 +106,9 @@ static void pairing_complete(struct bt_conn *conn, bool bonded)
 	board_show_text("Pairing Complete", false, K_SECONDS(2));
 }
 
-static void pairing_failed(struct bt_conn *conn)
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
 {
-	printk("Pairing Failed\n");
+	printk("Pairing Failed (%d)\n", reason);
 	board_show_text("Pairing Failed", false, K_SECONDS(2));
 }
 
@@ -121,7 +119,7 @@ const struct bt_conn_auth_cb auth_cb = {
 	.pairing_failed = pairing_failed,
 };
 
-static void connected(struct bt_conn *conn, u8_t err)
+static void connected(struct bt_conn *conn, uint8_t err)
 {
 	printk("Connected (err 0x%02x)\n", err);
 
@@ -132,7 +130,7 @@ static void connected(struct bt_conn *conn, u8_t err)
 	}
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	printk("Disconnected (reason 0x%02x)\n", reason);
 
@@ -170,8 +168,6 @@ static void bt_ready(int err)
 
 	bt_conn_cb_register(&conn_cb);
 	bt_conn_auth_cb_register(&auth_cb);
-
-	bt_gatt_service_register(&name_svc);
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();

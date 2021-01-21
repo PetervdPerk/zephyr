@@ -10,8 +10,8 @@
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <misc/printk.h>
-#include <misc/byteorder.h>
+#include <sys/printk.h>
+#include <sys/byteorder.h>
 #include <zephyr.h>
 
 #include <bluetooth/bluetooth.h>
@@ -24,7 +24,7 @@ static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 };
 
-static void connected(struct bt_conn *conn, u8_t err)
+static void connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
@@ -37,18 +37,18 @@ static void connected(struct bt_conn *conn, u8_t err)
 
 	printk("Connected %s\n", addr);
 
-	if (bt_conn_security(conn, BT_SECURITY_FIPS)) {
+	if (bt_conn_set_security(conn, BT_SECURITY_L4)) {
 		printk("Failed to set security\n");
 	}
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected from %s (reason %u)\n", addr, reason);
+	printk("Disconnected from %s (reason 0x%02x)\n", addr, reason);
 }
 
 static void identity_resolved(struct bt_conn *conn, const bt_addr_le_t *rpa,
@@ -63,13 +63,19 @@ static void identity_resolved(struct bt_conn *conn, const bt_addr_le_t *rpa,
 	printk("Identity resolved %s -> %s\n", addr_rpa, addr_identity);
 }
 
-static void security_changed(struct bt_conn *conn, bt_security_t level)
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Security changed: %s level %u\n", addr, level);
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+		       err);
+	}
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -102,10 +108,10 @@ static void pairing_complete(struct bt_conn *conn, bool bonded)
 	printk("Pairing Complete\n");
 }
 
-static void pairing_failed(struct bt_conn *conn)
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
 {
-	printk("Pairing Failed. Disconnecting.\n");
-	bt_conn_disconnect(conn, BT_HCI_ERR_AUTHENTICATION_FAIL);
+	printk("Pairing Failed (%d). Disconnecting.\n", reason);
+	bt_conn_disconnect(conn, BT_HCI_ERR_AUTH_FAIL);
 }
 
 static struct bt_conn_auth_cb auth_cb_display = {

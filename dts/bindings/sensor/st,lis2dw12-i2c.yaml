@@ -1,24 +1,18 @@
-#
 # Copyright (c) 2019 STMicroelectronics
-#
 # SPDX-License-Identifier: Apache-2.0
-#
----
-title: STMicroelectronics MEMS sensors LIS2DW12
-version: 0.1
 
-description: >
-    This binding gives a base representation of LIS2DW12 3-axis accelerometer
+description: STMicroelectronics LIS2DW12 3-axis accelerometer
 
-inherits:
-    !include i2c-device.yaml
+compatible: "st,lis2dw12"
+
+include: i2c-device.yaml
 
 properties:
-    compatible:
-        constraint: "st,lis2dw12"
-
     irq-gpios:
-      type: compound
-      category: required
-      generation: define, use-prop-name
-...
+      type: phandle-array
+      required: false
+      description: DRDY pin
+
+        This pin defaults to active high when produced by the sensor.
+        The property value should ensure the flags properly describe
+        the signal that is presented to the driver.

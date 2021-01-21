@@ -19,24 +19,15 @@
  * Include kernel.h instead
  */
 
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #ifndef _ASMLANGUAGE
 
 #include <toolchain/common.h>
 #include <zephyr/types.h>
-#include <sys_io.h>
-#include <arch/bits_portable.h>
-#include "posix_soc_if.h"
-
+#include <arch/common/sys_bitops.h>
+#include <arch/common/sys_io.h>
+#include <arch/common/ffs.h>
+#include <arch/posix/posix_soc_if.h>
 
 #endif /* _ASMLANGUAGE */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ZEPHYR_INCLUDE_ARCH_POSIX_ASM_INLINE_GCC_H_ */

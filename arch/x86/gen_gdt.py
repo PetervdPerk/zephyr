@@ -16,6 +16,15 @@ This kernel image has been properly padded such that inserting
 these data structures will not disturb the memory addresses of
 other symbols.
 
+The input kernel ELF binary is used to obtain the following
+information:
+
+- Memory addresses of the Main and Double Fault TSS structures
+  so GDT descriptors can be created for them
+- Memory addresses of where the GDT lives in memory, so that this
+  address can be populated in the GDT pseudo descriptor
+- whether userspace or HW stack protection are enabled in Kconfig
+
 The output is a GDT whose contents depend on the kernel
 configuration. With no memory protection features enabled,
 we generate flat 32-bit code and data segments. If hardware-
@@ -36,8 +45,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 
 if LooseVersion(elftools.__version__) < LooseVersion('0.24'):
-    sys.stderr.write("pyelftools is out of date, need version 0.24 or later\n")
-    sys.exit(1)
+    sys.exit("pyelftools is out of date, need version 0.24 or later")
 
 
 def debug(text):
@@ -47,8 +55,7 @@ def debug(text):
 
 
 def error(text):
-    sys.stderr.write(os.path.basename(sys.argv[0]) + ": " + text + "\n")
-    sys.exit(1)
+    sys.exit(os.path.basename(sys.argv[0]) + ": " + text)
 
 
 gdt_pd_fmt = "<HIH"
@@ -173,6 +180,13 @@ def main():
     else:
         num_entries = 3
 
+    use_tls = False
+    if ("CONFIG_THREAD_LOCAL_STORAGE" in syms) and ("CONFIG_X86_64" not in syms):
+        use_tls = True
+
+        # x86_64 does not use descriptor for thread local storage
+        num_entries += 1
+
     gdt_base = syms["_gdt"]
 
     with open(args.output_gdt, "wb") as fp:
@@ -198,12 +212,21 @@ def main():
             # Selector 0x20: double-fault TSS
             fp.write(create_tss_entry(df_tss, 0x67, 0))
 
-        if num_entries == 7:
+        if num_entries >= 7:
             # Selector 0x28: code descriptor, dpl = 3
             fp.write(create_code_data_entry(0, 0xFFFFF, 3,
                                             FLAGS_GRAN, ACCESS_EX | ACCESS_RW))
 
             # Selector 0x30: data descriptor, dpl = 3
+            fp.write(create_code_data_entry(0, 0xFFFFF, 3,
+                                            FLAGS_GRAN, ACCESS_RW))
+
+        if use_tls:
+            # Selector 0x18, 0x28 or 0x38 (depending on entries above):
+            # data descriptor, dpl = 3
+            #
+            # for use with thread local storage while this will be
+            # modified at runtime.
             fp.write(create_code_data_entry(0, 0xFFFFF, 3,
                                             FLAGS_GRAN, ACCESS_RW))
 

@@ -98,10 +98,14 @@ features:
 +-----------+------------+-------------------------------------+
 | GPIO      | on-chip    | gpio                                |
 +-----------+------------+-------------------------------------+
+| SDHC      | on-chip    | disk access                         |
++-----------+------------+-------------------------------------+
 | UART      | on-chip    | serial port-polling;                |
 |           |            | serial port-interrupt               |
 +-----------+------------+-------------------------------------+
 | ENET      | on-chip    | ethernet                            |
++-----------+------------+-------------------------------------+
+| USB       | on-chip    | USB device controller               |
 +-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
@@ -119,9 +123,13 @@ The MIMXRT1064 SoC has four pairs of pinmux/gpio controllers.
 +===============+=================+===========================+
 | GPIO_AD_B0_02 | LCD_RST         | LCD Display               |
 +---------------+-----------------+---------------------------+
+| GPIO_AD_B0_05 | GPIO            | SD Card                   |
++---------------+-----------------+---------------------------+
 | GPIO_AD_B0_09 | GPIO/ENET_RST   | LED/Ethernet              |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_10 | GPIO/ENET_INT   | GPIO/Ethernet             |
++---------------+-----------------+---------------------------+
+| GPIO_AD_B0_11 | GPIO            | Touch Interrupt           |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_12 | LPUART1_TX      | UART Console              |
 +---------------+-----------------+---------------------------+
@@ -185,6 +193,10 @@ The MIMXRT1064 SoC has four pairs of pinmux/gpio controllers.
 +---------------+-----------------+---------------------------+
 | GPIO_B1_11    | ENET_RX_ER      | Ethernet                  |
 +---------------+-----------------+---------------------------+
+| GPIO_B1_12    | GPIO            | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_B1_14    | USDHC1_VSELECT  | SD Card                   |
++---------------+-----------------+---------------------------+
 | GPIO_B1_15    | BACKLIGHT_CTL   | LCD Display               |
 +---------------+-----------------+---------------------------+
 | GPIO_EMC_40   | ENET_MDC        | Ethernet                  |
@@ -194,6 +206,18 @@ The MIMXRT1064 SoC has four pairs of pinmux/gpio controllers.
 | GPIO_AD_B0_09 | ENET_RST        | Ethernet                  |
 +---------------+-----------------+---------------------------+
 | GPIO_AD_B0_10 | ENET_INT        | Ethernet                  |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_00 | USDHC1_CMD      | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_01 | USDHC1_CLK      | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_02 | USDHC1_DATA0    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_03 | USDHC1_DATA1    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_04 | USDHC1_DATA2    | SD Card                   |
++---------------+-----------------+---------------------------+
+| GPIO_SD_B0_05 | USDHC1_DATA3    | SD Card                   |
 +---------------+-----------------+---------------------------+
 
 System Clock
@@ -211,50 +235,87 @@ remaining are not used.
 Programming and Debugging
 *************************
 
-The MIMXRT1064-EVK includes the :ref:`nxp_opensda` serial and debug adapter
-built into the board to provide debugging, flash programming, and serial
-communication over USB.
+Build and flash applications as usual (see :ref:`build_an_application` and
+:ref:`application_run` for more details).
 
-To use the Segger J-Link tools with OpenSDA, follow the instructions in the
-:ref:`nxp_opensda_jlink` page using the `Segger J-Link OpenSDA V2.1 Firmware`_.
-The Segger J-Link tools are the default for this board, therefore it is not
-necessary to set ``OPENSDA_FW=jlink`` explicitly when you invoke ``make
-debug``.
+Configuring a Debug Probe
+=========================
 
-With these mechanisms, applications for the ``mimxrt1064_evk`` board
-configuration can be built and debugged in the usual way (see
-:ref:`build_an_application` and :ref:`application_run` for more details).
+A debug probe is used for both flashing and debugging the board. This board is
+configured by default to use the :ref:`opensda-daplink-onboard-debug-probe`,
+however the :ref:`pyocd-debug-host-tools` do not yet support programming the
+external flashes on this board so you must reconfigure the board for one of the
+following debug probes instead.
 
-The pyOCD tools do not yet support this SoC.
+:ref:`jlink-external-debug-probe`
+---------------------------------
+
+Install the :ref:`jlink-debug-host-tools` and make sure they are in your search
+path.
+
+Attach a J-Link 20-pin connector to J21. Check that jumpers J47 and J48 are
+**off** (they are on by default when boards ship from the factory) to ensure
+SWD signals are disconnected from the OpenSDA microcontroller.
+
+Configuring a Console
+=====================
+
+Regardless of your choice in debug probe, we will use the OpenSDA
+microcontroller as a usb-to-serial adapter for the serial console. Check that
+jumpers J45 and J46 are **on** (they are on by default when boards ship from
+the factory) to connect UART signals to the OpenSDA microcontroller.
+
+Connect a USB cable from your PC to J41.
+
+Use the following settings with your serial terminal of choice (minicom, putty,
+etc.):
+
+- Speed: 115200
+- Data: 8 bits
+- Parity: None
+- Stop bits: 1
 
 Flashing
 ========
 
-The Segger J-Link firmware does not support command line flashing, therefore
-the usual ``flash`` build system target is not supported.
-Instead, see the NXP `How to Enable Boot from QSPI Flash App Note
-<https://www.nxp.com/docs/en/application-note/AN12108.pdf>`_ for flashing instructions.
+Here is an example for the :ref:`hello_world` application.
 
+.. zephyr-app-commands::
+   :zephyr-app: samples/hello_world
+   :board: mimxrt1064_evk
+   :goals: flash
+
+Open a serial terminal, reset the board (press the SW9 button), and you should
+see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! mimxrt1064_evk
 
 Debugging
 =========
 
-This example uses the :ref:`hello_world` sample with the
-:ref:`nxp_opensda_jlink` tools. Run the following to build your Zephyr
-application, invoke the J-Link GDB server, attach a GDB client, and program
-your Zephyr application to flash. It will leave you at a GDB prompt.
+Here is an example for the :ref:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :board: mimxrt1064_evk
    :goals: debug
 
+Open a serial terminal, step through the application in your debugger, and you
+should see the following message in the terminal:
+
+.. code-block:: console
+
+   ***** Booting Zephyr OS v1.14.0-rc1 *****
+   Hello World! mimxrt1064_evk
 
 .. _MIMXRT1064-EVK Website:
    https://www.nxp.com/support/developer-resources/run-time-software/i.mx-developer-resources/mimxrt1064-evk-i.mx-rt1064-evaluation-kit:MIMXRT1064-EVK
 
 .. _MIMXRT1064-EVK Quick Reference Guide:
-   https://www.nxp.com/docs/en/quick-reference-guide/IMXRT1064QSG.pdf
+   https://www.nxp.com/webapp/Download?colCode=IMXRT1064QSG
 
 .. _MIMXRT1064-EVK Schematics:
    https://www.nxp.com/webapp/Download?colCode=i.MXRT160EVKDS&Parent_nodeId=1537930933174731284155&Parent_pageType=product
@@ -266,7 +327,4 @@ your Zephyr application to flash. It will leave you at a GDB prompt.
    https://www.nxp.com/docs/en/data-sheet/IMXRT1064CEC.pdf
 
 .. _i.MX RT1064 Reference Manual:
-   https://www.nxp.com/docs/en/reference-manual/IMXRT1064RM.pdf
-
-.. _Segger J-Link OpenSDA V2.1 Firmware:
-   https://www.segger.com/downloads/jlink/OpenSDA_V2_1.bin
+   https://www.nxp.com/webapp/Download?colCode=IMXRT1064RM

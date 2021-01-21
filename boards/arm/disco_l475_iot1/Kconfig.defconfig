@@ -1,105 +1,21 @@
-# Kconfig - Discovery IoT L475 board configuration
-#
+# Discovery IoT L475 board configuration
+
 # Copyright (c) 2017 Linaro Limited
-#
 # SPDX-License-Identifier: Apache-2.0
-#
 
 if BOARD_DISCO_L475_IOT1
 
 config BOARD
 	default "disco_l475_iot1"
 
-if BT
-
-choice CLOCK_STM32_SYSCLK_SRC
-	default CLOCK_STM32_SYSCLK_SRC_MSI
+choice STM32_LPTIM_CLOCK
+	default STM32_LPTIM_CLOCK_LSE
+	depends on STM32_LPTIM_TIMER
 endchoice
-
-if CLOCK_STM32_SYSCLK_SRC_MSI
-
-config CLOCK_STM32_MSI_RANGE
-	default 8
-
-config SYS_CLOCK_HW_CYCLES_PER_SEC
-	default 16000000
-
-endif # CLOCK_STM32_SYSCLK_SRC_MSI
-
-endif #BT
-
-if !BT
-choice CLOCK_STM32_SYSCLK_SRC
-	default CLOCK_STM32_SYSCLK_SRC_PLL
-endchoice
-
-endif #BT
-
-if CLOCK_STM32_SYSCLK_SRC_PLL
-
-if CLOCK_STM32_PLL_SRC_HSI
-# produce 80MHz clock at PLL output
-
-config SYS_CLOCK_HW_CYCLES_PER_SEC
-	default 80000000
-config CLOCK_STM32_PLL_M_DIVISOR
-	default 1
-config CLOCK_STM32_PLL_N_MULTIPLIER
-	default 20
-config CLOCK_STM32_PLL_P_DIVISOR
-	default 7
-config CLOCK_STM32_PLL_Q_DIVISOR
-	default 2
-config CLOCK_STM32_PLL_R_DIVISOR
-	default 4
-
-endif # CLOCK_STM32_PLL_SRC_HSI
-
-endif # CLOCK_STM32_SYSCLK_SRC_PLL
-
-if UART_CONSOLE
-
-config UART_1
-	default y
-
-endif # UART_CONSOLE
-
-if SERIAL
-
-config UART_4
-	default y
-
-endif # SERIAL
-
-if I2C
-
-config I2C_1
-	default y
-
-config I2C_2
-	default y
-
-endif # I2C
-
-if SPI
 
 config SPI_STM32_INTERRUPT
 	default y
-
-config SPI_1
-	default y
-
-config SPI_3
-	default y
-
-endif # SPI
-
-if PWM
-
-config PWM_STM32_2
-	default y
-
-endif # PWM
+	depends on SPI
 
 choice LIS3MDL_TRIGGER_MODE
 	default LIS3MDL_TRIGGER_NONE
@@ -109,27 +25,10 @@ choice HTS221_TRIGGER_MODE
 	default HTS221_TRIGGER_NONE
 endchoice
 
-
-if VL53L0X
-
-config VL53L0X_XSHUT_CONTROL_ENABLE
-	default y
-
-config VL53L0X_XSHUT_GPIO_DEV_NAME
-	default "GPIOC"
-
-config VL53L0X_XSHUT_GPIO_PIN_NUM
-	default 6
-
-endif #VL53L0X
-
-if LSM6DSL
-
 choice LSM6DSL_TRIGGER_MODE
 	default LSM6DSL_TRIGGER_GLOBAL_THREAD
+	depends on LSM6DSL
 endchoice
-
-endif # LSM6DSL
 
 if BT
 
@@ -151,7 +50,7 @@ config BT_HCI_ACL_FLOW_CONTROL
 config BT_HCI_VS_EXT
 	default n
 
-endif #BT
+endif # BT
 
 if WIFI
 
@@ -161,6 +60,6 @@ config SPI
 config WIFI_ESWIFI
 	default y
 
-endif #WIFI
+endif # WIFI
 
 endif # BOARD_DISCO_L475_IOT1

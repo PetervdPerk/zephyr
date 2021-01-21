@@ -19,12 +19,12 @@ LOG_MODULE_REGISTER(main);
 
 static struct k_delayed_work delayed_report_send;
 
-static struct device *hdev;
+static const struct device *hdev;
 
 #define REPORT_TIMEOUT K_SECONDS(2)
 
 /* Some HID sample Report Descriptor */
-static const u8_t hid_report_desc[] = {
+static const uint8_t hid_report_desc[] = {
 	/* 0x05, 0x01,		USAGE_PAGE (Generic Desktop)		*/
 	HID_GI_USAGE_PAGE, USAGE_GEN_DESKTOP,
 	/* 0x09, 0x00,		USAGE (Undefined)			*/
@@ -61,7 +61,7 @@ static const u8_t hid_report_desc[] = {
 
 static void send_report(struct k_work *work)
 {
-	static u8_t report_1[2] = { REPORT_ID_1, 0x00 };
+	static uint8_t report_1[2] = { REPORT_ID_1, 0x00 };
 	int ret, wrote;
 
 	ret = hid_int_ep_write(hdev, report_1, sizeof(report_1), &wrote);
@@ -72,16 +72,18 @@ static void send_report(struct k_work *work)
 	report_1[1]++;
 }
 
-static void in_ready_cb(void)
+static void in_ready_cb(const struct device *dev)
 {
+	ARG_UNUSED(dev);
+
 	k_delayed_work_submit(&delayed_report_send, REPORT_TIMEOUT);
 }
 
-static void status_cb(enum usb_dc_status_code status, const u8_t *param)
+static void status_cb(enum usb_dc_status_code status, const uint8_t *param)
 {
 	switch (status) {
 	case USB_DC_CONFIGURED:
-		in_ready_cb();
+		in_ready_cb(hdev);
 		break;
 	case USB_DC_SOF:
 		break;
@@ -91,17 +93,17 @@ static void status_cb(enum usb_dc_status_code status, const u8_t *param)
 	}
 }
 
-static void idle_cb(u16_t report_id)
+static void idle_cb(const struct device *dev, uint16_t report_id)
 {
-	static u8_t report_1[2] = { 0x00, 0xEB };
+	static uint8_t report_1[2] = { 0x00, 0xEB };
 	int ret, wrote;
 
-	ret = hid_int_ep_write(hdev, report_1, sizeof(report_1), &wrote);
+	ret = hid_int_ep_write(dev, report_1, sizeof(report_1), &wrote);
 
 	LOG_DBG("Idle callback: wrote %d bytes with ret %d", wrote, ret);
 }
 
-static void protocol_cb(u8_t protocol)
+static void protocol_cb(const struct device *dev, uint8_t protocol)
 {
 	LOG_DBG("New protocol: %s", protocol == HID_PROTOCOL_BOOT ?
 		"boot" : "report");
@@ -109,36 +111,28 @@ static void protocol_cb(u8_t protocol)
 
 static const struct hid_ops ops = {
 	.int_in_ready = in_ready_cb,
-	.status_cb = status_cb,
 	.on_idle = idle_cb,
 	.protocol_change = protocol_cb,
 };
 
 void main(void)
 {
+	int ret;
+
 	LOG_DBG("Starting application");
 
-	k_delayed_work_init(&delayed_report_send, send_report);
-
-#ifndef CONFIG_USB_COMPOSITE_DEVICE
-	hdev = device_get_binding(CONFIG_USB_HID_DEVICE_NAME_0);
-	if (hdev == NULL) {
-		LOG_ERR("Cannot get USB HID Device");
+	ret = usb_enable(status_cb);
+	if (ret != 0) {
+		LOG_ERR("Failed to enable USB");
 		return;
 	}
 
-	LOG_DBG("HID Device: dev %p", hdev);
-
-	usb_hid_register_device(hdev, hid_report_desc, sizeof(hid_report_desc),
-				&ops);
-	usb_hid_init(hdev);
-#endif
+	k_delayed_work_init(&delayed_report_send, send_report);
 }
 
-#ifdef CONFIG_USB_COMPOSITE_DEVICE
-static int composite_pre_init(struct device *dev)
+static int composite_pre_init(const struct device *dev)
 {
-	hdev = device_get_binding(CONFIG_USB_HID_DEVICE_NAME_0);
+	hdev = device_get_binding("HID_0");
 	if (hdev == NULL) {
 		LOG_ERR("Cannot get USB HID Device");
 		return -ENODEV;
@@ -153,4 +147,3 @@ static int composite_pre_init(struct device *dev)
 }
 
 SYS_INIT(composite_pre_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
-#endif

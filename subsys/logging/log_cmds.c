@@ -92,10 +92,10 @@ static int log_status(const struct shell *shell,
 		      const struct log_backend *backend,
 		      size_t argc, char **argv)
 {
-	u32_t modules_cnt = log_sources_count();
-	u32_t dynamic_lvl;
-	u32_t compiled_lvl;
-	u32_t i;
+	uint32_t modules_cnt = log_sources_count();
+	uint32_t dynamic_lvl;
+	uint32_t compiled_lvl;
+	uint32_t i;
 
 
 	if (!log_backend_is_active(backend)) {
@@ -142,9 +142,9 @@ static int cmd_log_backend_status(const struct shell *shell,
 
 static int module_id_get(const char *name)
 {
-	u32_t modules_cnt = log_sources_count();
+	uint32_t modules_cnt = log_sources_count();
 	const char *tmp_name;
-	u32_t i;
+	uint32_t i;
 
 	for (i = 0U; i < modules_cnt; i++) {
 		tmp_name = log_source_name_get(CONFIG_LOG_DOMAIN_ID, i);
@@ -158,7 +158,7 @@ static int module_id_get(const char *name)
 
 static void filters_set(const struct shell *shell,
 			const struct log_backend *backend,
-			size_t argc, char **argv, u32_t level)
+			size_t argc, char **argv, uint32_t level)
 {
 	int i;
 	int id;
@@ -172,7 +172,7 @@ static void filters_set(const struct shell *shell,
 	for (i = 0; i < cnt; i++) {
 		id = all ? i : module_id_get(argv[i]);
 		if (id >= 0) {
-			u32_t set_lvl = log_filter_set(backend,
+			uint32_t set_lvl = log_filter_set(backend,
 						       CONFIG_LOG_DOMAIN_ID,
 						       id, level);
 
@@ -363,6 +363,44 @@ static int cmd_log_backends_list(const struct shell *shell,
 	return 0;
 }
 
+static int cmd_log_strdup_utilization(const struct shell *shell,
+				      size_t argc, char **argv)
+{
+
+	/* Defines needed when string duplication is disabled (LOG_IMMEDIATE is
+	 * on). In that case, this function is not compiled in.
+	 */
+	#ifndef CONFIG_LOG_STRDUP_BUF_COUNT
+	#define CONFIG_LOG_STRDUP_BUF_COUNT 0
+	#endif
+
+	#ifndef CONFIG_LOG_STRDUP_MAX_STRING
+	#define CONFIG_LOG_STRDUP_MAX_STRING 0
+	#endif
+
+	uint32_t buf_cnt = log_get_strdup_pool_utilization();
+	uint32_t buf_size = log_get_strdup_longest_string();
+	uint32_t percent = CONFIG_LOG_STRDUP_BUF_COUNT ?
+			100 * buf_cnt / CONFIG_LOG_STRDUP_BUF_COUNT : 0;
+
+	shell_print(shell,
+		"Maximal utilization of the buffer pool: %d / %d (%d %%).",
+		buf_cnt, CONFIG_LOG_STRDUP_BUF_COUNT, percent);
+	if (buf_cnt == CONFIG_LOG_STRDUP_BUF_COUNT) {
+		shell_warn(shell, "Buffer count too small.");
+	}
+
+	shell_print(shell,
+		"Longest duplicated string: %d, buffer capacity: %d.",
+		buf_size, CONFIG_LOG_STRDUP_MAX_STRING);
+	if (buf_size > CONFIG_LOG_STRDUP_MAX_STRING) {
+		shell_warn(shell, "Buffer size too small.");
+
+	}
+
+	return 0;
+}
+
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_log_backend,
 	SHELL_CMD_ARG(disable, &dsub_module_name,
@@ -403,7 +441,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_log_stat,
 	SHELL_CMD_ARG(disable, &dsub_module_name,
 	"'log disable <module_0> .. <module_n>' disables logs in specified "
 	"modules (all if no modules specified).",
-	cmd_log_self_disable, 2, 255),
+	cmd_log_self_disable, 1, 255),
 	SHELL_CMD_ARG(enable, &dsub_severity_lvl,
 	"'log enable <level> <module_0> ...  <module_n>' enables logs up to"
 	" given level in specified modules (all if no modules specified).",
@@ -413,6 +451,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_log_stat,
 	SHELL_CMD_ARG(list_backends, NULL, "Lists logger backends.",
 		      cmd_log_backends_list, 1, 0),
 	SHELL_CMD(status, NULL, "Logger status", cmd_log_self_status),
+	SHELL_COND_CMD_ARG(CONFIG_LOG_STRDUP_POOL_PROFILING, strdup_utilization,
+			NULL, "Get utilization of string duplicates pool",
+			cmd_log_strdup_utilization, 1, 0),
 	SHELL_SUBCMD_SET_END
 );
 

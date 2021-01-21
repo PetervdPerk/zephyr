@@ -25,12 +25,6 @@ LOG_MODULE_REGISTER(ipsp);
 #include <net/net_context.h>
 #include <net/udp.h>
 
-/* admin-local, dynamically allocated multicast address */
-#define MCAST_IP6ADDR { { { 0xff, 0x02, 0, 0, 0, 0, 0, 0, \
-			    0, 0, 0, 0, 0, 0, 0, 0x1 } } }
-
-struct in6_addr in6addr_mcast = MCAST_IP6ADDR;
-
 /* Define my IP address where to expect messages */
 #define MY_IP6ADDR { { { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, \
 			 0, 0, 0, 0, 0, 0, 0, 0x1 } } }
@@ -44,7 +38,7 @@ static struct in6_addr in6addr_my = MY_IP6ADDR;
 K_THREAD_STACK_DEFINE(thread_stack, STACKSIZE);
 static struct k_thread thread_data;
 
-static u8_t buf_tx[NET_IPV6_MTU];
+static uint8_t buf_tx[NET_IPV6_MTU];
 
 #define MAX_DBG_PRINT 64
 
@@ -87,20 +81,13 @@ static inline void init_app(void)
 		ifaddr = net_if_ipv6_addr_add(net_if_get_default(),
 					      &in6addr_my, NET_ADDR_MANUAL, 0);
 	} while (0);
-
-	net_if_ipv6_maddr_add(net_if_get_default(), &in6addr_mcast);
 }
 
 static inline bool get_context(struct net_context **udp_recv6,
-			       struct net_context **tcp_recv6,
-			       struct net_context **mcast_recv6)
+			       struct net_context **tcp_recv6)
 {
 	int ret;
-	struct sockaddr_in6 mcast_addr6 = { 0 };
 	struct sockaddr_in6 my_addr6 = { 0 };
-
-	net_ipaddr_copy(&mcast_addr6.sin6_addr, &in6addr_mcast);
-	mcast_addr6.sin6_family = AF_INET6;
 
 	my_addr6.sin6_family = AF_INET6;
 	my_addr6.sin6_port = htons(MY_PORT);
@@ -116,20 +103,6 @@ static inline bool get_context(struct net_context **udp_recv6,
 	if (ret < 0) {
 		LOG_ERR("Cannot bind IPv6 UDP port %d (%d)",
 			ntohs(my_addr6.sin6_port), ret);
-		return false;
-	}
-
-	ret = net_context_get(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, mcast_recv6);
-	if (ret < 0) {
-		LOG_ERR("Cannot get receiving IPv6 mcast network context (%d)",
-			ret);
-		return false;
-	}
-
-	ret = net_context_bind(*mcast_recv6, (struct sockaddr *)&mcast_addr6,
-			       sizeof(struct sockaddr_in6));
-	if (ret < 0) {
-		LOG_ERR("Cannot bind IPv6 mcast (%d)", ret);
 		return false;
 	}
 
@@ -160,22 +133,26 @@ static inline bool get_context(struct net_context **udp_recv6,
 
 static int build_reply(const char *name,
 		       struct net_pkt *pkt,
-		       u8_t *buf)
+		       uint8_t *buf)
 {
 	int reply_len = net_pkt_remaining_data(pkt);
+	int ret;
 
-	LOG_DBG("%s received %d bytes", name, reply_len);
+	LOG_DBG("%s received %d bytes", log_strdup(name), reply_len);
 
-	net_pkt_read_new(pkt, buf, reply_len);
+	ret = net_pkt_read(pkt, buf, reply_len);
+	if (ret < 0) {
+		LOG_ERR("cannot read packet: %d", ret);
+		return ret;
+	}
 
-	LOG_DBG("Received %d bytes, sending %d bytes", reply_len, reply_len);
+	LOG_DBG("sending %d bytes", reply_len);
 
 	return reply_len;
 }
 
 static inline void pkt_sent(struct net_context *context,
 			    int status,
-			    void *token,
 			    void *user_data)
 {
 	if (status >= 0) {
@@ -213,14 +190,18 @@ static void udp_received(struct net_context *context,
 	set_dst_addr(family, pkt, ip_hdr->ipv6, proto_hdr->udp, &dst_addr);
 
 	ret = build_reply(dbg, pkt, buf_tx);
+	if (ret < 0) {
+		LOG_ERR("Cannot send data to peer (%d)", ret);
+		return;
+	}
 
 	net_pkt_unref(pkt);
 
-	ret = net_context_sendto_new(context, buf_tx, ret, &dst_addr,
-				     family == AF_INET6 ?
-				     sizeof(struct sockaddr_in6) :
-				     sizeof(struct sockaddr_in),
-				     pkt_sent, 0, NULL, user_data);
+	ret = net_context_sendto(context, buf_tx, ret, &dst_addr,
+				 family == AF_INET6 ?
+				 sizeof(struct sockaddr_in6) :
+				 sizeof(struct sockaddr_in),
+				 pkt_sent, K_NO_WAIT, user_data);
 	if (ret < 0) {
 		LOG_ERR("Cannot send data to peer (%d)", ret);
 	}
@@ -230,7 +211,7 @@ static void setup_udp_recv(struct net_context *udp_recv6)
 {
 	int ret;
 
-	ret = net_context_recv(udp_recv6, udp_received, 0, NULL);
+	ret = net_context_recv(udp_recv6, udp_received, K_NO_WAIT, NULL);
 	if (ret < 0) {
 		LOG_ERR("Cannot receive IPv6 UDP packets");
 	}
@@ -258,11 +239,15 @@ static void tcp_received(struct net_context *context,
 		 family == AF_INET6 ? '6' : '4');
 
 	ret = build_reply(dbg, pkt, buf_tx);
+	if (ret < 0) {
+		LOG_ERR("Cannot send data to peer (%d)", ret);
+		return;
+	}
 
 	net_pkt_unref(pkt);
 
-	ret = net_context_send_new(context, buf_tx, ret, pkt_sent,
-				   K_NO_WAIT, NULL, NULL);
+	ret = net_context_send(context, buf_tx, ret, pkt_sent,
+			       K_NO_WAIT, NULL);
 	if (ret < 0) {
 		LOG_ERR("Cannot send data to peer (%d)", ret);
 		quit();
@@ -279,7 +264,9 @@ static void tcp_accepted(struct net_context *context,
 
 	NET_DBG("Accept called, context %p error %d", context, error);
 
-	ret = net_context_recv(context, tcp_received, 0, NULL);
+	net_context_set_accepting(context, false);
+
+	ret = net_context_recv(context, tcp_received, K_NO_WAIT, NULL);
 	if (ret < 0) {
 		LOG_ERR("Cannot receive TCP packet (family %d)",
 			net_context_get_family(context));
@@ -300,9 +287,8 @@ static void listen(void)
 {
 	struct net_context *udp_recv6 = { 0 };
 	struct net_context *tcp_recv6 = { 0 };
-	struct net_context *mcast_recv6 = { 0 };
 
-	if (!get_context(&udp_recv6, &tcp_recv6, &mcast_recv6)) {
+	if (!get_context(&udp_recv6, &tcp_recv6)) {
 		LOG_ERR("Cannot get network contexts");
 		return;
 	}
@@ -317,7 +303,6 @@ static void listen(void)
 	LOG_INF("Stopping...");
 
 	net_context_put(udp_recv6);
-	net_context_put(mcast_recv6);
 	net_context_put(tcp_recv6);
 }
 
@@ -327,5 +312,5 @@ void main(void)
 
 	k_thread_create(&thread_data, thread_stack, STACKSIZE,
 			(k_thread_entry_t)listen,
-			NULL, NULL, NULL, K_PRIO_COOP(7), 0, 0);
+			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 }

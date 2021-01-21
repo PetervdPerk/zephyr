@@ -6,7 +6,7 @@
 
 #include <zephyr.h>
 #include <kernel.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 
 /* This function will allow execute from sram region.
@@ -17,14 +17,14 @@
  */
 
 #ifdef CONFIG_ARM_MPU
-#include <arch/arm/cortex_m/cmsis.h>
+#include <arch/arm/aarch32/cortex_m/cmsis.h>
 void disable_mpu_rasr_xn(void)
 {
-	u32_t index;
+	uint32_t index;
 	/* Kept the max index as 8(irrespective of soc) because the sram
 	 * would most likely be set at index 2.
 	 */
-	for (index = 0; index < 8; index++) {
+	for (index = 0U; index < 8; index++) {
 		MPU->RNR = index;
 		if (MPU->RASR & MPU_RASR_XN_Msk) {
 			MPU->RASR ^= MPU_RASR_XN_Msk;
