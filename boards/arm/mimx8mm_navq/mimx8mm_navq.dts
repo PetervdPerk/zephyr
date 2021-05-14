@@ -21,6 +21,11 @@
 		zephyr,sram = &tcmu_sys;
 		zephyr,console = &uart4;
 		zephyr,shell-uart = &uart4;
+		zephyr,ipc_shm = &rpmsg_sh_mem;
+	};
+	rpmsg_sh_mem:memory@b8000000{
+		compatible = "mmio-sram";
+		reg = <0xb8000000 0x400000>;
 	};
 };
 

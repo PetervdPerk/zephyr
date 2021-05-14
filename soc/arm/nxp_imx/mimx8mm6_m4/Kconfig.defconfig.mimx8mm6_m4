@@ -13,6 +13,10 @@ config SYS_CLOCK_HW_CYCLES_PER_SEC
 	int
 	default 400000000
 
+config IPM_IMX
+	default y
+	depends on IPM
+
 if CLOCK_CONTROL
 
 config CLOCK_CONTROL_MCUX_CCM
